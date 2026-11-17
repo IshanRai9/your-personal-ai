@@ -48,8 +48,17 @@ class SettingsDialog(QDialog):
         self.speak = QCheckBox("Speak responses using an installed Windows voice")
         self.speak.setChecked(settings.speak_replies)
         general_layout.addWidget(self.speak)
+        self.wake_enabled = QCheckBox("Listen locally for a wake phrase")
+        self.wake_enabled.setChecked(settings.wake_enabled)
+        general_layout.addWidget(self.wake_enabled)
+        general_layout.addWidget(QLabel("Wake phrase"))
+        self.wake_phrase = QLineEdit(settings.wake_phrase)
+        self.wake_phrase.setAccessibleName("Wake phrase")
+        self.wake_phrase.setMaxLength(80)
+        self.wake_phrase.setPlaceholderText("Wake phrase, for example Hey Assistant")
+        general_layout.addWidget(self.wake_phrase)
         details = QLabel(
-            f"Command model · {MODEL}\nSpeech recognition · English, push-to-talk\n\n"
+            f"Command model · {MODEL}\nSpeech recognition · English\n\n"
             "Setup downloads the runtime and model files. Once setup completes, "
             "assistant processing works offline."
         )
@@ -131,7 +140,15 @@ class SettingsDialog(QDialog):
             / "models/ollama/manifests/registry.ollama.ai/library/qwen3/4b-instruct"
         )
         model = "Installed" if manifest.is_file() else "Download needed"
-        return f"Runtime · {runtime}\nCommand model · {model}\nSpeech model · {speech}"
+        wake = (
+            "Installed"
+            if (self.runtime.wake_directory / "am/final.mdl").is_file()
+            else "Download needed"
+        )
+        return (
+            f"Runtime · {runtime}\nCommand model · {model}\nSpeech model · {speech}\n"
+            f"Wake model · {wake}"
+        )
 
     def refresh_commands(self, selected=0):
         self.commands.clear()
@@ -188,6 +205,8 @@ class SettingsDialog(QDialog):
     def save(self):
         try:
             self.settings.speak_replies = self.speak.isChecked()
+            self.settings.wake_phrase = self.wake_phrase.text()
+            self.settings.wake_enabled = self.wake_enabled.isChecked()
             self.settings.hidden_apps = [
                 self.apps.item(index).data(Qt.ItemDataRole.UserRole)
                 for index in range(self.apps.count())

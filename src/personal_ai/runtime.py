@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import shutil
@@ -32,6 +33,10 @@ class LocalRuntime:
     @property
     def speech_directory(self) -> Path:
         return self.directory / "models" / "whisper-small.en"
+
+    @property
+    def wake_directory(self) -> Path:
+        return self.directory / "models" / "vosk-model-small-en-us-0.15"
 
     def binary(self) -> str | None:
         candidates = [
@@ -212,7 +217,35 @@ class LocalRuntime:
         from faster_whisper.utils import download_model
 
         download_model("small.en", output_dir=str(self.speech_directory))
+        self.download_wake_model(progress)
         return "Setup complete. Voice and natural-language commands are ready offline."
+
+    def download_wake_model(self, progress: Callable[[str], None]) -> None:
+        if (self.wake_directory / "am/final.mdl").is_file():
+            return
+        progress("Downloading the local wake-phrase model (about 40 MB)…")
+        url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+        with httpx.Client(follow_redirects=True, timeout=120, trust_env=False) as client:
+            response = client.get(url)
+            response.raise_for_status()
+        models = self.wake_directory.parent
+        models.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".wake-", dir=models) as temporary:
+            staging = Path(temporary)
+            with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+                for member in archive.infolist():
+                    if not (staging / member.filename).resolve().is_relative_to(staging.resolve()):
+                        raise ValueError("The wake model archive contains an invalid path.")
+                archive.extractall(staging)
+            extracted = staging / self.wake_directory.name
+            if not (extracted / "am/final.mdl").is_file():
+                raise RuntimeError("The wake model download is incomplete. Run setup again.")
+            if self.wake_directory.exists():
+                if not self.wake_directory.resolve().is_relative_to(models.resolve()):
+                    raise ValueError("The wake model path must stay inside the models folder.")
+                self.wake_directory.rename(staging / "previous")
+            extracted.rename(self.wake_directory)
+        progress("Wake-phrase model ready.")
 
     def _download_runtime(self, progress: Callable[[str], None]) -> None:
         archive = self.directory / "ollama-download.zip"

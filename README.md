@@ -20,9 +20,12 @@ The assistant uses a dedicated Ollama process at `127.0.0.1:11435`, with cloud f
 
 - Type a request such as `open Notepad` and press Enter.
 - Hold **Hold to speak** while speaking, then release to run the recognized command.
+- Enable **Wake listening**, say `Hey Assistant`, wait for the tone, then speak your command. The window comes forward and recording ends after a pause or ten seconds.
 - Double-click an entry in the command list to run it directly.
 - Shutdown and restart require confirmation. App launches and configured scripts run immediately.
 - Turn optional spoken replies on in **Settings → General**.
+
+Change the wake phrase in **Settings → General**. Wake detection uses a small local Vosk model, installed by setup. It works while the assistant is running, including when its window is minimized. The wake toggle turns background microphone listening on or off. Listening pauses during commands, settings, and spoken replies. Closing the assistant stops listening.
 
 Apps are discovered from Windows Start Menu shortcuts. Enable or hide entries under **Settings → Apps**. Add other programs through custom commands.
 
@@ -38,7 +41,7 @@ Python scripts use the assistant's Python environment by default. Choose your sc
 
 ## Local data
 
-Settings and models live under `%LOCALAPPDATA%\YourPersonalAI`. Settings are saved atomically as `settings.json`. Recent activity stays in memory for the current session. Microphone audio is held in memory and discarded after processing. Spoken replies use an installed Windows speech voice.
+Settings and models live under `%LOCALAPPDATA%\YourPersonalAI`. Settings are saved atomically as `settings.json`. Recent activity stays in memory for the current session. Wake listening processes small audio chunks in memory. Command recordings are held in memory and discarded after processing. Spoken replies use an installed Windows speech voice.
 
 Assistant inference and speech recognition operate offline after setup. Programs and scripts you configure retain their own behavior, including any network access they perform.
 

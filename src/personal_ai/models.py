@@ -44,8 +44,18 @@ class Command(StrictModel):
 class Settings(StrictModel):
     version: Literal[1] = 1
     speak_replies: bool = False
+    wake_enabled: bool = False
+    wake_phrase: str = Field(default="Hey Assistant", min_length=1, max_length=80)
     commands: list[Command] = Field(default_factory=list)
     hidden_apps: list[str] = Field(default_factory=list)
+
+    @field_validator("wake_phrase")
+    @classmethod
+    def validate_wake_phrase(cls, value):
+        phrase = " ".join(value.split())
+        if not phrase or not all(word.isalpha() for word in phrase.split()):
+            raise ValueError("Use words separated by spaces for the wake phrase.")
+        return phrase
 
     @model_validator(mode="after")
     def validate_commands(self):

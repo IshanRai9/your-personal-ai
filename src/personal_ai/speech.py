@@ -1,18 +1,25 @@
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QBuffer, QIODevice, QObject
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtMultimedia import QAudioFormat, QAudioSource, QMediaDevices
 
 
 class Microphone(QObject):
+    audio_ready = Signal(object)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.source: QAudioSource | None = None
-        self.buffer = QBuffer(self)
+        self.device = None
+        self.streaming = False
+        self.chunks: list[np.ndarray] = []
+        self.pending_bytes = b""
         self.format = QAudioFormat()
 
-    def start(self) -> None:
+    def start(self, streaming: bool = False) -> None:
+        if self.source is not None:
+            raise RuntimeError("Microphone capture is already active.")
         device = QMediaDevices.defaultAudioInput()
         if device.isNull():
             raise RuntimeError(
@@ -20,23 +27,33 @@ class Microphone(QObject):
             )
         audio_format = device.preferredFormat()
         self.format = audio_format
-        self.buffer.setData(b"")
-        self.buffer.open(QIODevice.OpenModeFlag.ReadWrite)
+        self.streaming = streaming
+        self.chunks.clear()
+        self.pending_bytes = b""
         self.source = QAudioSource(device, audio_format, self)
-        self.source.start(self.buffer)
+        self.device = self.source.start()
         if self.source.error().value != 0:
             self.stop()
             raise RuntimeError("Cannot record. Check Windows microphone permissions and try again.")
+        self.device.readyRead.connect(self.read_audio)
 
     def stop(self) -> np.ndarray:
         if self.source is None:
             return np.array([], dtype=np.float32)
+        self.read_audio()
         self.source.stop()
         self.source.deleteLater()
         self.source = None
-        raw = bytes(self.buffer.data())
-        self.buffer.close()
-        self.buffer.setData(b"")
+        self.device = None
+        audio = np.concatenate(self.chunks) if self.chunks else np.array([], dtype=np.float32)
+        self.chunks.clear()
+        self.pending_bytes = b""
+        return audio
+
+    def read_audio(self):
+        if self.device is None or not self.device.isOpen():
+            return
+        raw = self.pending_bytes + bytes(self.device.readAll())
         formats = {
             QAudioFormat.SampleFormat.Int16: (np.int16, 32768.0),
             QAudioFormat.SampleFormat.Int32: (np.int32, 2147483648.0),
@@ -48,6 +65,9 @@ class Microphone(QObject):
         dtype, scale = formats[self.format.sampleFormat()]
         frame_size = np.dtype(dtype).itemsize * self.format.channelCount()
         complete = len(raw) // frame_size * frame_size
+        self.pending_bytes = raw[complete:]
+        if not complete:
+            return
         audio = np.frombuffer(raw[:complete], dtype=dtype).astype(np.float32)
         if self.format.sampleFormat() == QAudioFormat.SampleFormat.UInt8:
             audio -= 128
@@ -60,7 +80,9 @@ class Microphone(QObject):
                 np.arange(len(audio)),
                 audio,
             ).astype(np.float32)
-        return audio
+        if not self.streaming:
+            self.chunks.append(audio)
+        self.audio_ready.emit(audio)
 
 
 class Transcriber:

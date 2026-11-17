@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
@@ -16,7 +18,7 @@ from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 from personal_ai.commands import builtin_commands
 from personal_ai.config import SettingsStore
 from personal_ai.editor import ActionDialog, CommandDialog
-from personal_ai.models import Settings
+from personal_ai.models import Action, Command, Settings
 from personal_ai.runtime import LocalRuntime
 from personal_ai.settings_ui import SettingsDialog
 from personal_ai.ui import MainWindow, apply_style
@@ -98,4 +100,72 @@ class DesktopTests(unittest.TestCase):
         self.assertFalse(window.recording)
         self.assertTrue(window.request.isEnabled())
         self.assertIn("No microphone", window.activity.toPlainText())
+        window.close()
+
+    def test_wake_recording_stops_after_silence_and_runs_the_command(self):
+        target = self.directory / "wake-command.txt"
+        command = Command(
+            name="Save marker",
+            actions=[
+                Action(
+                    kind="script",
+                    program=sys.executable,
+                    arguments=[
+                        "-c",
+                        "from pathlib import Path; import sys; "
+                        "Path(sys.argv[1]).write_text('done')",
+                        str(target),
+                    ],
+                )
+            ],
+        )
+        SettingsStore(self.directory).save(Settings(wake_enabled=True, commands=[command]))
+        with patch.object(MainWindow, "resume_wake"), patch.object(QApplication, "beep"):
+            window = MainWindow(self.runtime)
+            with (
+                patch.object(window.microphone, "start"),
+                patch.object(
+                    window.microphone, "stop", return_value=np.zeros(16000, dtype=np.float32)
+                ),
+                patch.object(window.transcriber, "transcribe", return_value="Save marker"),
+            ):
+                window.wake_detected()
+                QTest.qWait(300)
+                self.assertTrue(window.automatic_recording)
+                window.audio_received(np.full(1600, 0.1, dtype=np.float32))
+                window.audio_received(np.zeros(16000, dtype=np.float32))
+                QTest.qWait(50)
+                self.wait_for_idle(window)
+                self.assertEqual(target.read_text(), "done")
+                self.assertFalse(window.recording)
+            window.close()
+
+    def test_disabling_wake_discards_automatic_capture_even_if_saving_fails(self):
+        with patch.object(MainWindow, "resume_wake"):
+            window = MainWindow(self.runtime)
+            window.settings.wake_enabled = True
+            with (
+                patch.object(window.microphone, "start"),
+                patch.object(
+                    window.microphone, "stop", return_value=np.zeros(16000, dtype=np.float32)
+                ),
+                patch.object(window.transcriber, "transcribe") as transcribe,
+                patch.object(window.store, "save", side_effect=OSError("disk full")),
+            ):
+                window.start_recording(automatic=True)
+                window.toggle_wake(False)
+                self.assertFalse(window.recording)
+                self.assertFalse(window.settings.wake_enabled)
+                self.assertFalse(window.recording_timer.isActive())
+                transcribe.assert_not_called()
+            window.close()
+
+    def test_late_wake_detection_does_not_interrupt_an_active_command(self):
+        window = MainWindow(self.runtime)
+        window.settings.wake_enabled = True
+        window.worker = object()
+        window.wake_detected()
+        self.assertFalse(window.wake_pending)
+        self.assertFalse(window.recording)
+        window.worker = None
         window.close()

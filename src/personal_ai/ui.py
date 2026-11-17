@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from PySide6.QtCore import QEvent, Qt
+import numpy as np
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPalette, QTextCharFormat, QTextCursor
 from PySide6.QtTextToSpeech import QTextToSpeech
 from PySide6.QtWidgets import (
@@ -26,6 +27,7 @@ from personal_ai.models import Command, Resolution
 from personal_ai.runtime import LocalRuntime
 from personal_ai.settings_ui import SettingsDialog
 from personal_ai.speech import Microphone, Transcriber
+from personal_ai.wake import WakeListener
 from personal_ai.workers import Worker
 
 
@@ -89,6 +91,17 @@ class MainWindow(QMainWindow):
         self.callback = None
         self.closing = False
         self.recording = False
+        self.automatic_recording = False
+        self.wake_listener: WakeListener | None = None
+        self.wake_failed = False
+        self.settings_open = False
+        self.wake_pending = False
+        self.command_speech_seen = False
+        self.command_silence = 0
+        self.recording_timer = QTimer(self)
+        self.recording_timer.setSingleShot(True)
+        self.recording_timer.timeout.connect(self.stop_recording)
+        self.microphone.audio_ready.connect(self.audio_received)
         self.setWindowTitle("Your Personal AI")
         self.resize(1040, 740)
         self.setMinimumSize(800, 560)
@@ -102,6 +115,11 @@ class MainWindow(QMainWindow):
         title.setObjectName("title")
         heading.addWidget(title)
         heading.addStretch()
+        self.wake_button = QPushButton()
+        self.wake_button.setCheckable(True)
+        self.wake_button.setChecked(self.settings.wake_enabled)
+        self.wake_button.toggled.connect(self.toggle_wake)
+        heading.addWidget(self.wake_button)
         self.settings_button = QPushButton("Settings")
         self.settings_button.clicked.connect(self.open_settings)
         heading.addWidget(self.settings_button)
@@ -164,6 +182,156 @@ class MainWindow(QMainWindow):
         if not runtime.binary():
             self.log("Setup", "Open Settings to download the local runtime and models.")
         self.request.setFocus()
+        self.update_wake_button()
+        QTimer.singleShot(0, self.resume_wake)
+
+    def update_wake_button(self):
+        self.wake_button.setText(
+            "Wake listening on"
+            if self.settings.wake_enabled and not self.wake_failed
+            else "Wake listening off"
+        )
+        self.wake_button.setToolTip(
+            f"Say “{self.settings.wake_phrase}”, pause, then speak a command."
+        )
+
+    def toggle_wake(self, enabled):
+        self.settings.wake_enabled = enabled
+        try:
+            self.store.save(self.settings)
+        except (OSError, ValueError) as error:
+            self.log("Settings", f"Wake preference could not be saved. {error}")
+        self.wake_failed = False
+        if enabled:
+            self.resume_wake()
+        else:
+            self.pause_wake()
+            if self.wake_listener:
+                self.wake_listener.stop()
+            if self.automatic_recording:
+                self.recording_timer.stop()
+                self.recording = False
+                self.automatic_recording = False
+                self.microphone.stop()
+                self.mic_button.setText("Hold to speak")
+                self.set_busy(False)
+            if not self.worker and not self.recording:
+                self.status.setText("Ready")
+        self.update_wake_button()
+
+    def pause_wake(self):
+        if self.wake_listener:
+            self.wake_listener.pause()
+        if not self.recording and self.microphone.source is not None:
+            self.microphone.stop()
+
+    def resume_wake(self):
+        if (
+            not self.settings.wake_enabled
+            or self.wake_failed
+            or self.closing
+            or self.worker
+            or self.recording
+            or self.settings_open
+            or self.wake_pending
+        ):
+            return
+        if self.speaker and self.speaker.state() not in {
+            QTextToSpeech.State.Ready,
+            QTextToSpeech.State.Error,
+        }:
+            return
+        if self.wake_listener is None:
+            self.wake_listener = WakeListener(
+                self.runtime.wake_directory, self.settings.wake_phrase, self
+            )
+            self.wake_listener.ready.connect(self.resume_wake)
+            self.wake_listener.detected.connect(self.wake_detected)
+            self.wake_listener.error.connect(self.wake_error)
+            self.wake_listener.finished.connect(self.wake_finished)
+            self.status.setText("Starting local wake listening…")
+            self.wake_listener.start()
+            return
+        if not self.wake_listener.model_ready or self.wake_listener.stopped.is_set():
+            return
+        try:
+            self.wake_listener.resume()
+            if self.microphone.source is None:
+                self.microphone.start(streaming=True)
+            self.status.setText(f"Listening for “{self.settings.wake_phrase}”")
+        except (OSError, RuntimeError) as error:
+            self.wake_error(str(error))
+
+    def wake_error(self, message):
+        self.wake_failed = True
+        self.pause_wake()
+        if self.wake_listener:
+            self.wake_listener.stop()
+        self.wake_button.blockSignals(True)
+        self.wake_button.setChecked(False)
+        self.wake_button.blockSignals(False)
+        self.update_wake_button()
+        self.log("Wake listening", message)
+        self.status.setText("Wake listening unavailable")
+
+    def wake_finished(self):
+        listener = self.wake_listener
+        self.wake_listener = None
+        if listener:
+            listener.deleteLater()
+        if self.closing:
+            self.close()
+        else:
+            QTimer.singleShot(0, self.resume_wake)
+
+    def wake_detected(self):
+        if (
+            self.worker
+            or self.recording
+            or self.closing
+            or self.settings_open
+            or not self.settings.wake_enabled
+            or self.wake_pending
+        ):
+            return
+        if self.speaker and self.speaker.state() not in {
+            QTextToSpeech.State.Ready,
+            QTextToSpeech.State.Error,
+        }:
+            return
+        self.pause_wake()
+        self.wake_pending = True
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        self.status.setText("Awake. Speak your command after the tone.")
+        QApplication.beep()
+        QTimer.singleShot(250, self.record_wake_command)
+
+    def record_wake_command(self):
+        self.wake_pending = False
+        if (
+            self.settings.wake_enabled
+            and not self.closing
+            and not self.worker
+            and not self.settings_open
+        ):
+            self.start_recording(automatic=True)
+        else:
+            self.resume_wake()
+
+    def audio_received(self, audio):
+        if self.wake_listener:
+            self.wake_listener.feed(audio)
+        if not self.automatic_recording or not self.recording or not len(audio):
+            return
+        if float(np.sqrt(np.mean(audio**2))) >= 0.005:
+            self.command_speech_seen = True
+            self.command_silence = 0
+        else:
+            self.command_silence += len(audio)
+        if self.command_speech_seen and self.command_silence >= 16000:
+            QTimer.singleShot(0, self.stop_recording)
 
     def available_commands(self) -> list[Command]:
         hidden = set(self.settings.hidden_apps)
@@ -206,15 +374,27 @@ class MainWindow(QMainWindow):
             if self.speaker is None:
                 self.speaker = QTextToSpeech(self)
                 self.speaker.errorOccurred.connect(self.speech_error)
+                self.speaker.stateChanged.connect(self.speaker_state_changed)
             if self.speaker.state() == QTextToSpeech.State.Error:
                 self.status.setText("Spoken replies unavailable. Install a Windows speech voice.")
             else:
+                self.pause_wake()
                 self.speaker.say(text[:1200])
+
+    def speaker_state_changed(self, state):
+        if state in {QTextToSpeech.State.Ready, QTextToSpeech.State.Error}:
+            self.resume_wake()
+        else:
+            self.pause_wake()
 
     def speech_error(self, _reason, message):
         self.status.setText("Spoken replies unavailable. " + message)
 
     def set_busy(self, busy):
+        if busy:
+            self.pause_wake()
+        else:
+            QTimer.singleShot(0, self.resume_wake)
         for widget in (
             self.request,
             self.send_button,
@@ -328,18 +508,29 @@ class MainWindow(QMainWindow):
         self.log("You", command.name)
         self.execute(command)
 
-    def start_recording(self):
+    def start_recording(self, automatic=False):
         if self.worker or self.recording:
             return
+        self.pause_wake()
+        self.recording = True
+        self.automatic_recording = automatic
         if self.speaker:
             self.speaker.stop()
         try:
             self.microphone.start()
         except (OSError, RuntimeError) as error:
+            self.recording = False
+            self.automatic_recording = False
             self.reply(str(error))
+            QTimer.singleShot(0, self.resume_wake)
             return
-        self.recording = True
-        self.mic_button.setText("Listening… release to run")
+        self.command_speech_seen = False
+        self.command_silence = 0
+        if automatic:
+            self.recording_timer.start(10000)
+        self.mic_button.setText(
+            "Listening… click to finish" if automatic else "Listening… release to run"
+        )
         self.status.setText("Listening")
         self.request.setEnabled(False)
         self.send_button.setEnabled(False)
@@ -349,7 +540,9 @@ class MainWindow(QMainWindow):
     def stop_recording(self):
         if not self.recording:
             return
+        self.recording_timer.stop()
         self.recording = False
+        self.automatic_recording = False
         self.mic_button.setText("Hold to speak")
         audio = self.microphone.stop()
 
@@ -361,7 +554,7 @@ class MainWindow(QMainWindow):
 
     def handle_voice(self, text):
         if not text:
-            self.reply("I didn’t hear a command. Hold the button while speaking and try again.")
+            self.reply("I didn’t hear a command. Please try again.")
             return
         self.log("You · voice", text)
         self.resolve_text(text)
@@ -375,25 +568,45 @@ class MainWindow(QMainWindow):
     def open_settings(self):
         if self.worker or self.recording:
             return
+        self.settings_open = True
+        self.pause_wake()
         dialog = SettingsDialog(self.settings, self.apps, self.runtime, self.store, self)
         if dialog.exec():
             self.settings = dialog.settings
             if self.speaker and not self.settings.speak_replies:
                 self.speaker.stop()
             self.refresh_commands()
+            self.wake_failed = False
+            if self.wake_listener:
+                self.wake_listener.stop()
+            self.wake_button.blockSignals(True)
+            self.wake_button.setChecked(self.settings.wake_enabled)
+            self.wake_button.blockSignals(False)
+            self.update_wake_button()
         dialog.deleteLater()
+        self.settings_open = False
+        QTimer.singleShot(0, self.resume_wake)
 
     def event(self, event):
-        if event.type() == QEvent.Type.WindowDeactivate and getattr(self, "recording", False):
+        if (
+            event.type() == QEvent.Type.WindowDeactivate
+            and getattr(self, "recording", False)
+            and not self.automatic_recording
+        ):
             self.stop_recording()
         return super().event(event)
 
     def closeEvent(self, event):
+        self.closing = True
+        self.recording_timer.stop()
         if self.recording:
             self.recording = False
+            self.automatic_recording = False
             self.microphone.stop()
-        if self.worker:
-            self.closing = True
+        self.pause_wake()
+        if self.wake_listener:
+            self.wake_listener.stop()
+        if self.worker or (self.wake_listener and self.wake_listener.isRunning()):
             self.cancel()
             event.ignore()
             return
