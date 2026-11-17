@@ -1,6 +1,5 @@
 from datetime import datetime
 
-import numpy as np
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPalette, QTextCharFormat, QTextCursor
 from PySide6.QtTextToSpeech import QTextToSpeech
@@ -29,7 +28,7 @@ from personal_ai.config import SettingsStore
 from personal_ai.models import Command, Resolution
 from personal_ai.runtime import LocalRuntime
 from personal_ai.settings_ui import SettingsDialog
-from personal_ai.speech import Microphone, Transcriber
+from personal_ai.speech import CommandEndpoint, Microphone, Transcriber
 from personal_ai.wake import WakeListener
 from personal_ai.windows import Shortcuts
 from personal_ai.workers import Worker
@@ -104,8 +103,7 @@ class MainWindow(QMainWindow):
         self.wake_failed = False
         self.settings_open = False
         self.wake_pending = False
-        self.command_speech_seen = False
-        self.command_silence = 0
+        self.command_endpoint: CommandEndpoint | None = None
         self.recording_timer = QTimer(self)
         self.recording_timer.setSingleShot(True)
         self.recording_timer.timeout.connect(self.stop_recording)
@@ -295,6 +293,7 @@ class MainWindow(QMainWindow):
                 self.recording = False
                 self.automatic_recording = False
                 self.microphone.stop()
+                self.command_endpoint = None
                 self.mic_button.setText("Hold to speak")
                 self.set_busy(False)
             if not self.worker and not self.recording:
@@ -405,12 +404,7 @@ class MainWindow(QMainWindow):
             self.wake_listener.feed(audio)
         if not self.automatic_recording or not self.recording or not len(audio):
             return
-        if float(np.sqrt(np.mean(audio**2))) >= 0.005:
-            self.command_speech_seen = True
-            self.command_silence = 0
-        else:
-            self.command_silence += len(audio)
-        if self.command_speech_seen and self.command_silence >= 16000:
+        if self.command_endpoint and self.command_endpoint.feed(audio):
             QTimer.singleShot(0, self.stop_recording)
 
     def available_commands(self) -> list[Command]:
@@ -597,15 +591,15 @@ class MainWindow(QMainWindow):
         if self.speaker:
             self.speaker.stop()
         try:
+            self.command_endpoint = CommandEndpoint() if automatic else None
             self.microphone.start()
         except (OSError, RuntimeError) as error:
             self.recording = False
             self.automatic_recording = False
+            self.command_endpoint = None
             self.reply(str(error))
             QTimer.singleShot(0, self.resume_wake)
             return
-        self.command_speech_seen = False
-        self.command_silence = 0
         if automatic:
             self.recording_timer.start(10000)
         self.mic_button.setText(
@@ -620,11 +614,21 @@ class MainWindow(QMainWindow):
     def stop_recording(self):
         if not self.recording:
             return
+        empty_command = (
+            self.automatic_recording
+            and self.command_endpoint is not None
+            and self.command_endpoint.last_speech is None
+        )
         self.recording_timer.stop()
         self.recording = False
         self.automatic_recording = False
         self.mic_button.setText("Hold to speak")
         audio = self.microphone.stop()
+        self.command_endpoint = None
+        if empty_command:
+            self.set_busy(False)
+            self.reply("I didn’t hear a command. Please try again.")
+            return
 
         self.begin(
             lambda _progress, _cancelled: self.transcriber.transcribe(audio),
@@ -688,6 +692,7 @@ class MainWindow(QMainWindow):
             self.recording = False
             self.automatic_recording = False
             self.microphone.stop()
+        self.command_endpoint = None
         self.pause_wake()
         if self.wake_listener:
             self.wake_listener.stop()

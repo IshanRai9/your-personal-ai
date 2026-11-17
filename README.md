@@ -34,7 +34,7 @@ The assistant uses a dedicated Ollama process at `127.0.0.1:11435`, with cloud f
 
 - Type a request such as `open Notepad` and press Enter.
 - Hold **Hold to speak** while speaking, then release to run the recognized command.
-- Enable **Wake listening**, say `Hey Assistant`, wait for the tone, then speak your command. The window comes forward and recording ends after a pause or ten seconds.
+- Enable **Wake listening**, say `Hey Assistant`, wait for the tone, then speak your command. Recording finishes after about 0.8 seconds without speech. If you say nothing for three seconds, it returns to wake listening. Commands have a ten-second recording limit.
 - Double-click an entry in the command list to run it directly.
 - Shutdown and restart require confirmation. App launches and configured scripts run immediately.
 - Turn optional spoken replies on in **Settings → General**.

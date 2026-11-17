@@ -164,6 +164,10 @@ class DesktopTests(unittest.TestCase):
                     window.microphone, "stop", return_value=np.zeros(16000, dtype=np.float32)
                 ),
                 patch.object(window.transcriber, "transcribe", return_value="Save marker"),
+                patch(
+                    "faster_whisper.vad.get_speech_timestamps",
+                    side_effect=[[], [{"start": 0, "end": 1600}], [{"start": 0, "end": 1600}]],
+                ),
             ):
                 window.wake_detected()
                 QTest.qWait(300)
@@ -174,6 +178,25 @@ class DesktopTests(unittest.TestCase):
                 self.wait_for_idle(window)
                 self.assertEqual(target.read_text(), "done")
                 self.assertFalse(window.recording)
+            window.close()
+
+    def test_empty_wake_capture_returns_to_listening_without_transcribing(self):
+        with patch.object(MainWindow, "resume_wake") as resume:
+            window = MainWindow(self.runtime)
+            with (
+                patch.object(window.microphone, "start"),
+                patch.object(window.microphone, "stop", return_value=np.zeros(48000)),
+                patch.object(window.transcriber, "transcribe") as transcribe,
+            ):
+                window.start_recording(automatic=True)
+                window.audio_received(np.zeros(48000, dtype=np.float32))
+                QTest.qWait(30)
+                self.assertFalse(window.recording)
+                self.assertFalse(window.recording_timer.isActive())
+                self.assertTrue(window.request.isEnabled())
+                self.assertIsNone(window.command_endpoint)
+                transcribe.assert_not_called()
+                resume.assert_called()
             window.close()
 
     def test_disabling_wake_discards_automatic_capture_even_if_saving_fails(self):
@@ -193,6 +216,7 @@ class DesktopTests(unittest.TestCase):
                 self.assertFalse(window.recording)
                 self.assertFalse(window.settings.wake_enabled)
                 self.assertFalse(window.recording_timer.isActive())
+                self.assertIsNone(window.command_endpoint)
                 transcribe.assert_not_called()
             window.close()
 

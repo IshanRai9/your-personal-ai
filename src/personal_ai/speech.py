@@ -5,6 +5,46 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtMultimedia import QAudioFormat, QAudioSource, QMediaDevices
 
 
+class CommandEndpoint:
+    """End a 16 kHz wake command after speech, or abandon an empty capture."""
+
+    def __init__(self):
+        import onnxruntime
+        from faster_whisper.vad import get_speech_timestamps
+
+        onnxruntime.disable_telemetry_events()
+        self.detect_speech = get_speech_timestamps
+        self.detect_speech(np.zeros(512, dtype=np.float32))  # Load the bundled local VAD.
+        self.audio = np.array([], dtype=np.float32)
+        self.total = 0
+        self.checked = 0
+        self.last_speech: int | None = None
+        self.finished = False
+
+    def feed(self, audio: np.ndarray) -> bool:
+        if self.finished:
+            return True
+        self.total += len(audio)
+        self.audio = np.concatenate((self.audio, audio))[-32000:]
+        if self.total - self.checked < 1600:
+            return False
+        self.checked = self.total
+        segments = self.detect_speech(
+            self.audio,
+            min_speech_duration_ms=100,
+            min_silence_duration_ms=100,
+            speech_pad_ms=0,
+        )
+        if segments:
+            end = self.total - len(self.audio) + segments[-1]["end"]
+            self.last_speech = max(self.last_speech or 0, end)
+        if self.last_speech is None:
+            self.finished = self.total >= 48000
+        else:
+            self.finished = self.total - self.last_speech >= 12800
+        return self.finished
+
+
 class Microphone(QObject):
     audio_ready = Signal(object)
 
