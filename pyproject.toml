@@ -1,0 +1,31 @@
+[project]
+name = "your-personal-ai"
+version = "0.1.0"
+description = "A private Windows assistant for local voice and text commands."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "PySide6>=6.8,<7",
+    "faster-whisper>=1.2,<2",
+    "httpx>=0.28,<1",
+    "pydantic>=2.11,<3",
+]
+
+[project.scripts]
+personal-ai = "personal_ai.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/personal_ai"]
+
+[dependency-groups]
+dev = ["ruff>=0.12"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

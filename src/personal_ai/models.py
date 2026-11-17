@@ -1,0 +1,73 @@
+from typing import Literal
+from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+
+class Action(StrictModel):
+    kind: Literal["launch", "script", "shutdown", "restart"] = "launch"
+    program: str = ""
+    arguments: list[str] = Field(default_factory=list)
+    working_directory: str = ""
+
+    @model_validator(mode="after")
+    def validate_program(self):
+        if self.kind in {"launch", "script"} and not self.program.strip():
+            raise ValueError("Choose a program or script interpreter for each action.")
+        return self
+
+
+class Command(StrictModel):
+    id: str = Field(default_factory=lambda: "custom." + uuid4().hex[:12])
+    name: str = Field(min_length=1, max_length=255)
+    description: str = Field(default="", max_length=500)
+    phrases: list[str] = Field(default_factory=list)
+    enabled: bool = True
+    actions: list[Action] = Field(min_length=1)
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a command name.")
+        return value.strip()
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return any(action.kind in {"shutdown", "restart"} for action in self.actions)
+
+
+class Settings(StrictModel):
+    version: Literal[1] = 1
+    speak_replies: bool = False
+    commands: list[Command] = Field(default_factory=list)
+    hidden_apps: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_commands(self):
+        ids = [command.id for command in self.commands]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Each command must have a unique ID.")
+        if any(command.id.startswith(("builtin.", "app.")) for command in self.commands):
+            raise ValueError("Custom commands must use their own IDs.")
+        if any(command.requires_confirmation for command in self.commands):
+            raise ValueError("Power actions are provided by the built-in commands.")
+        return self
+
+
+class Resolution(StrictModel):
+    status: Literal["match", "clarify", "unknown"]
+    command_id: str | None = None
+    candidates: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_match(self):
+        if self.status == "match" and not self.command_id:
+            raise ValueError("A matched command needs an ID.")
+        if self.status != "match" and self.command_id is not None:
+            raise ValueError("Only a matched command can have an executable ID.")
+        return self
