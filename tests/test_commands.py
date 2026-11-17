@@ -42,6 +42,28 @@ class CommandTests(unittest.TestCase):
             with patch.dict("os.environ", {"APPDATA": folder, "PROGRAMDATA": folder}):
                 self.assertTrue(any(command.name == name for command in discover_apps()))
 
+    def test_discovery_excludes_auxiliary_shortcuts_and_preserves_real_apps(self):
+        excluded = [
+            "About Java",
+            "Install Additional Tools for Node.js",
+            "Uninstall Telegram",
+            "Git Release Notes",
+            "Python 3.12 Manuals (64-bit)",
+            "PuTTY Web Site",
+            "VLC media player - reset preferences and cache files",
+            "Configure Java",
+        ]
+        included = ["Visual Studio Code", "BCUninstaller", "Epic Games Launcher", "PowerToys"]
+        with tempfile.TemporaryDirectory() as folder:
+            shortcuts = Path(folder) / "Microsoft/Windows/Start Menu/Programs"
+            shortcuts.mkdir(parents=True)
+            for name in [*excluded, *included]:
+                (shortcuts / (name + ".lnk")).touch()
+            with patch.dict("os.environ", {"APPDATA": folder, "PROGRAMDATA": folder}):
+                names = {command.name for command in discover_apps()}
+            self.assertTrue(names.isdisjoint(excluded))
+            self.assertTrue(set(included).issubset(names))
+
     def setUp(self):
         self.command = Command(
             name="Start work",

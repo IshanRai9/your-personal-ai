@@ -10,6 +10,14 @@ from pathlib import Path
 
 from personal_ai.models import Action, Command, Resolution
 
+_AUXILIARY_SHORTCUT = re.compile(
+    r"^(?:about|install|uninstall|configure|help|documentation|read\s*me|"
+    r"check for updates|report a problem|reload configuration|"
+    r"sample (?:desktop|uwp) apps|tools for (?:desktop|uwp) apps)\b"
+    r"|\b(?:uninstall(?:er)?|installer|documentation|read\s*me|release notes|"
+    r"manuals?|module docs|web\s*site|reset preferences)\b"
+)
+
 
 def normalize(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", text.casefold()).split())
@@ -47,6 +55,8 @@ def discover_apps() -> list[Command]:
             continue
         folder = Path(root) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
         for path in folder.rglob("*.lnk"):
+            if _AUXILIARY_SHORTCUT.search(normalize(path.stem)):
+                continue
             paths[str(path).casefold()] = (path.stem, str(path))
     commands = []
     names = set()
