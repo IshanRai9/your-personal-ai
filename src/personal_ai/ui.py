@@ -13,9 +13,12 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
+    QStyle,
+    QSystemTrayIcon,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -28,6 +31,7 @@ from personal_ai.runtime import LocalRuntime
 from personal_ai.settings_ui import SettingsDialog
 from personal_ai.speech import Microphone, Transcriber
 from personal_ai.wake import WakeListener
+from personal_ai.windows import Shortcuts
 from personal_ai.workers import Worker
 
 
@@ -90,6 +94,10 @@ class MainWindow(QMainWindow):
         self.worker: Worker | None = None
         self.callback = None
         self.closing = False
+        self.quit_requested = False
+        self.tray: QSystemTrayIcon | None = None
+        self.tray_wake_action = None
+        self.tray_startup_action = None
         self.recording = False
         self.automatic_recording = False
         self.wake_listener: WakeListener | None = None
@@ -185,6 +193,79 @@ class MainWindow(QMainWindow):
         self.update_wake_button()
         QTimer.singleShot(0, self.resume_wake)
 
+    def install_tray(self):
+        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        self.setWindowIcon(icon)
+        self.tray = QSystemTrayIcon(icon, self)
+        menu = QMenu(self)
+        menu.addAction("Open assistant", self.show_window)
+        menu.addAction("Settings", self.open_tray_settings)
+        self.tray_wake_action = menu.addAction("Wake listening")
+        self.tray_wake_action.setCheckable(True)
+        self.tray_wake_action.toggled.connect(self.wake_button.setChecked)
+        self.tray_startup_action = menu.addAction("Start with Windows")
+        self.tray_startup_action.setCheckable(True)
+        self.tray_startup_action.toggled.connect(self.set_startup)
+        menu.addSeparator()
+        menu.addAction("Quit", self.request_quit)
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self.tray_activated)
+        self.refresh_tray()
+        self.tray.show()
+        QApplication.instance().setQuitOnLastWindowClosed(False)
+
+    def refresh_tray(self):
+        if not self.tray:
+            return
+        self.tray.setToolTip("Your Personal AI · " + self.wake_button.text())
+        self.tray_wake_action.blockSignals(True)
+        self.tray_wake_action.setChecked(self.wake_button.isChecked())
+        self.tray_wake_action.blockSignals(False)
+        self.tray_startup_action.blockSignals(True)
+        self.tray_startup_action.setChecked(Shortcuts(self.store.directory).startup.exists())
+        self.tray_startup_action.blockSignals(False)
+
+    def set_startup(self, enabled):
+        try:
+            Shortcuts(self.store.directory).set_startup(enabled)
+        except OSError as error:
+            QMessageBox.warning(self, "Could not update Windows startup", str(error))
+        self.refresh_tray()
+
+    def show_window(self):
+        if self.closing:
+            return
+        was_hidden = not self.isVisible()
+        self.showNormal()
+        if was_hidden:
+            # A hidden Windows launch can suppress the first native show.
+            self.hide()
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def tray_activated(self, reason):
+        if reason in {
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        }:
+            self.show_window()
+
+    def open_tray_settings(self):
+        self.show_window()
+        self.open_settings()
+
+    def request_quit(self):
+        if self.quit_requested:
+            return
+        self.quit_requested = True
+        for worker in self.findChildren(Worker):
+            if worker.isRunning():
+                worker.cancelled.set()
+                worker.finished.connect(self.close)
+        self.runtime.stop()
+        self.close()
+
     def update_wake_button(self):
         self.wake_button.setText(
             "Wake listening on"
@@ -194,6 +275,7 @@ class MainWindow(QMainWindow):
         self.wake_button.setToolTip(
             f"Say “{self.settings.wake_phrase}”, pause, then speak a command."
         )
+        self.refresh_tray()
 
     def toggle_wake(self, enabled):
         self.settings.wake_enabled = enabled
@@ -301,9 +383,7 @@ class MainWindow(QMainWindow):
             return
         self.pause_wake()
         self.wake_pending = True
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
+        self.show_window()
         self.status.setText("Awake. Speak your command after the tone.")
         QApplication.beep()
         QTimer.singleShot(250, self.record_wake_command)
@@ -585,6 +665,7 @@ class MainWindow(QMainWindow):
             self.update_wake_button()
         dialog.deleteLater()
         self.settings_open = False
+        self.refresh_tray()
         QTimer.singleShot(0, self.resume_wake)
 
     def event(self, event):
@@ -597,6 +678,10 @@ class MainWindow(QMainWindow):
         return super().event(event)
 
     def closeEvent(self, event):
+        if self.tray is not None and not self.quit_requested:
+            self.hide()
+            event.ignore()
+            return
         self.closing = True
         self.recording_timer.stop()
         if self.recording:
@@ -606,10 +691,18 @@ class MainWindow(QMainWindow):
         self.pause_wake()
         if self.wake_listener:
             self.wake_listener.stop()
-        if self.worker or (self.wake_listener and self.wake_listener.isRunning()):
+        active_downloads = any(worker.isRunning() for worker in self.findChildren(Worker))
+        if (
+            self.worker
+            or active_downloads
+            or (self.wake_listener and self.wake_listener.isRunning())
+        ):
             self.cancel()
             event.ignore()
             return
         if self.speaker:
             self.speaker.stop()
+        if self.tray:
+            self.tray.hide()
+            QApplication.instance().quit()
         super().closeEvent(event)

@@ -90,7 +90,14 @@ class ActionDialog(QDialog):
             return
         self.kind.setCurrentIndex(1)
         if Path(path).suffix.casefold() == ".py":
-            self.program.setText(sys.executable)
+            interpreter = sys.executable
+            if getattr(sys, "frozen", False):
+                interpreter, _ = QFileDialog.getOpenFileName(
+                    self, "Choose the Python interpreter for this script", "", "Python (*.exe)"
+                )
+                if not interpreter:
+                    return
+            self.program.setText(interpreter)
             self.arguments.setPlainText(path)
         else:
             self.program.setText("powershell.exe")

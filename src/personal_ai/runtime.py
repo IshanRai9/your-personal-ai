@@ -15,6 +15,7 @@ from pathlib import Path
 import httpx
 
 from personal_ai.models import Command, Resolution
+from personal_ai.windows import ProcessJob, external_process
 
 MODEL = "qwen3:4b-instruct"
 ADDRESS = "http://127.0.0.1:11435"
@@ -28,6 +29,7 @@ class LocalRuntime:
     def __init__(self, directory: Path):
         self.directory = directory
         self.process: subprocess.Popen | None = None
+        self.job: ProcessJob | None = None
         self._lock = threading.Lock()
 
     @property
@@ -73,7 +75,8 @@ class LocalRuntime:
                     "OLLAMA_DEBUG_LOG_REQUESTS": "false",
                 }
             )
-            self.process = subprocess.Popen(
+            self.job = ProcessJob()
+            self.process = external_process(
                 [binary, "serve"],
                 env=environment,
                 cwd=Path(binary).parent,
@@ -83,6 +86,7 @@ class LocalRuntime:
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             try:
+                self.job.attach(self.process)
                 with httpx.Client(trust_env=False, timeout=1) as client:
                     for _ in range(100):
                         if self.process.poll() is not None:
@@ -101,7 +105,11 @@ class LocalRuntime:
 
     def stop(self) -> None:
         process = self.process
+        job = self.job
         self.process = None
+        self.job = None
+        if job:
+            job.terminate()
         if process and process.poll() is None:
             if os.name == "nt":
                 subprocess.run(
@@ -117,6 +125,8 @@ class LocalRuntime:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
+        if job:
+            job.close()
 
     def classify(self, text: str, commands: list[Command]) -> Resolution:
         self.start()

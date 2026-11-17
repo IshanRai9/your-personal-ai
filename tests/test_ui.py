@@ -12,12 +12,14 @@ import numpy as np
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
+from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 
 from personal_ai.commands import builtin_commands
 from personal_ai.config import SettingsStore
 from personal_ai.editor import ActionDialog, CommandDialog
+from personal_ai.instance import InstanceServer, server_name
 from personal_ai.models import Action, Command, Settings
 from personal_ai.runtime import LocalRuntime
 from personal_ai.settings_ui import SettingsDialog
@@ -25,6 +27,40 @@ from personal_ai.ui import MainWindow, apply_style
 
 
 class DesktopTests(unittest.TestCase):
+    def test_close_hides_to_tray_and_quit_exits(self):
+        window = MainWindow(self.runtime)
+        window.install_tray()
+        window.show()
+        window.close()
+        self.assertFalse(window.isVisible())
+        self.assertFalse(window.closing)
+        self.assertTrue(window.tray.isVisible())
+        menu = window.tray.contextMenu()
+        next(action for action in menu.actions() if action.text() == "Open assistant").trigger()
+        self.assertTrue(window.isVisible())
+        next(action for action in menu.actions() if action.text() == "Quit").trigger()
+        self.assertTrue(window.closing)
+        self.assertFalse(window.tray.isVisible())
+
+    def test_second_launch_restores_window_after_complete_local_message(self):
+        window = MainWindow(self.runtime)
+        server = InstanceServer(self.directory, window)
+        client = QLocalSocket()
+        client.connectToServer(server_name(self.directory))
+        self.assertTrue(client.waitForConnected(1000))
+        QTest.qWait(20)
+        client.write(b"sh")
+        client.flush()
+        QTest.qWait(20)
+        self.assertFalse(window.isVisible())
+        client.write(b"ow\n")
+        client.flush()
+        QTest.qWait(30)
+        self.assertTrue(window.isVisible())
+        client.abort()
+        server.server.close()
+        window.close()
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])

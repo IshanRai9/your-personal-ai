@@ -19,6 +19,7 @@ from personal_ai.config import SettingsStore
 from personal_ai.editor import CommandDialog
 from personal_ai.models import Command, Settings
 from personal_ai.runtime import MODEL, LocalRuntime
+from personal_ai.windows import Shortcuts
 from personal_ai.workers import Worker
 
 
@@ -38,6 +39,8 @@ class SettingsDialog(QDialog):
         self.settings = settings.model_copy(deep=True)
         self.runtime = runtime
         self.store = store
+        self.shortcuts = Shortcuts(store.directory)
+        self.startup_was_enabled = self.shortcuts.startup.exists()
         self.worker: Worker | None = None
         layout = QVBoxLayout(self)
         tabs = QTabWidget()
@@ -45,6 +48,9 @@ class SettingsDialog(QDialog):
 
         general = QWidget()
         general_layout = QVBoxLayout(general)
+        self.start_with_windows = QCheckBox("Start quietly with Windows")
+        self.start_with_windows.setChecked(self.startup_was_enabled)
+        general_layout.addWidget(self.start_with_windows)
         self.speak = QCheckBox("Speak responses using an installed Windows voice")
         self.speak.setChecked(settings.speak_replies)
         general_layout.addWidget(self.speak)
@@ -189,7 +195,16 @@ class SettingsDialog(QDialog):
             return
         self.setup_button.setEnabled(False)
         self.buttons.setEnabled(False)
-        self.worker = Worker(lambda progress, _: self.runtime.setup(progress), self)
+
+        def download(progress, cancelled):
+            def report(message):
+                if cancelled.is_set():
+                    raise RuntimeError("Setup cancelled.")
+                progress(message)
+
+            return self.runtime.setup(report)
+
+        self.worker = Worker(download, self)
         self.worker.progress.connect(self.setup_status.setText)
         self.worker.finished.connect(self.setup_finished)
         self.worker.start()
@@ -212,6 +227,8 @@ class SettingsDialog(QDialog):
                 for index in range(self.apps.count())
                 if self.apps.item(index).checkState() == Qt.CheckState.Unchecked
             ]
+            if self.start_with_windows.isChecked() != self.startup_was_enabled:
+                self.shortcuts.set_startup(self.start_with_windows.isChecked())
             self.store.save(self.settings)
         except (OSError, ValueError) as error:
             QMessageBox.warning(self, "Settings could not be saved", str(error))

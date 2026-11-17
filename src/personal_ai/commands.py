@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from personal_ai.models import Action, Command, Resolution
+from personal_ai.windows import external_process, external_program
 
 _AUXILIARY_SHORTCUT = re.compile(
     r"^(?:about|install|uninstall|configure|help|documentation|read\s*me|"
@@ -202,16 +203,17 @@ class Executor:
         if Path(program).suffix.casefold() == ".lnk":
             if os.name != "nt":
                 raise OSError("Windows shortcuts require Windows.")
-            os.startfile(program, "open", subprocess.list2cmdline(arguments), directory or "")
+            with external_program():
+                os.startfile(program, "open", subprocess.list2cmdline(arguments), directory or "")
             return
-        subprocess.Popen([program, *arguments], cwd=directory, stdin=subprocess.DEVNULL)
+        external_process([program, *arguments], cwd=directory, stdin=subprocess.DEVNULL)
 
     @staticmethod
     def _run_script(
         program: str, arguments: list[str], directory: str | None, cancelled: threading.Event
     ) -> str:
         with tempfile.TemporaryFile() as output:
-            with subprocess.Popen(
+            with external_process(
                 [program, *arguments],
                 cwd=directory,
                 stdin=subprocess.DEVNULL,
