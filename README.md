@@ -37,6 +37,7 @@ The assistant uses a dedicated Ollama process at `127.0.0.1:11435`, with cloud f
 - Enable **Wake listening**, say `Hey Assistant`, wait for the tone, then speak your command. Recording finishes after about 0.8 seconds without speech. If you say nothing for three seconds, it returns to wake listening. Commands have a ten-second recording limit.
 - Double-click an entry in the command list to run it directly.
 - Shutdown and restart require confirmation. App launches and configured scripts run immediately.
+- Apps that require administrator access open the Windows UAC prompt. Approve it to launch the app, or cancel to stop the command and its remaining steps.
 - Turn optional spoken replies on in **Settings → General**.
 
 Change the wake phrase in **Settings → General**. Wake detection uses a small local Vosk model, installed by setup. It works while the assistant is running, including when its window is hidden in the tray. The wake toggle turns background microphone listening on or off. Listening pauses during commands, settings, and spoken replies. Quitting the assistant stops listening.

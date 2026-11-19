@@ -34,3 +34,7 @@ subprocess.run(
     cwd=root,
     check=True,
 )
+
+# Qt uses Windows' ICU library. A third-party ICU DLL collected from PATH can
+# have incompatible versioned exports, preventing QtCore from loading.
+(root / "dist/YourPersonalAI/_internal/icuuc.dll").unlink(missing_ok=True)

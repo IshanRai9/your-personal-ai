@@ -1,17 +1,82 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
-from personal_ai.commands import Executor, Resolver, builtin_commands, discover_apps
+from personal_ai.commands import CancelledError, Executor, Resolver, builtin_commands, discover_apps
 from personal_ai.config import SettingsStore
 from personal_ai.models import Action, Command, Resolution, Settings
 
 
 class CommandTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "Windows administrator app launches")
+    def test_apps_request_uac_only_when_windows_requires_elevation(self):
+        with tempfile.TemporaryDirectory(prefix="Admin app ") as folder:
+            for extension in ("exe", "lnk"):
+                with self.subTest(extension=extension):
+                    program = Path(folder) / ("App with spaces." + extension)
+                    program.touch()
+                    arguments = ["a path with spaces", "& $(literal)"]
+                    command = Command(
+                        name="Admin app",
+                        actions=[
+                            Action(
+                                program=str(program), arguments=arguments, working_directory=folder
+                            )
+                        ],
+                    )
+                    required = OSError("The requested operation requires elevation")
+                    required.winerror = 740
+                    with patch("subprocess.Popen") as spawn, patch("os.startfile") as shell:
+                        if extension == "exe":
+                            spawn.side_effect = required
+                        else:
+                            shell.side_effect = [required, None]
+                        self.assertIn("Launched", Executor().execute(command))
+                        expected = call(
+                            str(program), "runas", subprocess.list2cmdline(arguments), folder
+                        )
+                        self.assertEqual(shell.call_args, expected)
+                        self.assertEqual(shell.call_count, 1 if extension == "exe" else 2)
+
+    @unittest.skipUnless(os.name == "nt", "Windows administrator app launches")
+    def test_declining_uac_cancels_the_workflow(self):
+        required = OSError("Elevation required")
+        required.winerror = 740
+        declined = OSError("The operation was canceled by the user")
+        declined.winerror = 1223
+        for shortcut in (False, True):
+            with self.subTest(shortcut=shortcut), tempfile.TemporaryDirectory() as folder:
+                program = Path(folder) / ("App.lnk" if shortcut else "App.exe")
+                program.touch()
+                command = Command(name="Admin app", actions=[Action(program=str(program))] * 2)
+                with patch("subprocess.Popen", side_effect=required) as spawn:
+                    with patch("os.startfile", side_effect=declined) as shell:
+                        with self.assertRaisesRegex(
+                            CancelledError, "Administrator launch cancelled"
+                        ):
+                            Executor().execute(command)
+                        self.assertEqual(spawn.call_count, 0 if shortcut else 1)
+                        self.assertEqual(shell.call_count, 1)
+
+    @unittest.skipUnless(os.name == "nt", "Windows administrator app launches")
+    def test_regular_launches_and_unrelated_errors_do_not_request_uac(self):
+        command = Command(name="Regular app", actions=[Action(program=sys.executable)])
+        with patch("subprocess.Popen") as spawn, patch("os.startfile") as shell:
+            self.assertIn("Launched", Executor().execute(command))
+            shell.assert_not_called()
+            denied = OSError("Access denied")
+            denied.winerror = 5
+            spawn.side_effect = denied
+            with self.assertRaises(OSError) as raised:
+                Executor().execute(command)
+            self.assertIs(raised.exception, denied)
+            shell.assert_not_called()
+
     def test_model_receives_named_app_and_custom_workflows_before_unrelated_apps(self):
         calculator = Command(
             id="app.calculator",

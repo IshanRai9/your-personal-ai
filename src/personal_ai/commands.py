@@ -200,13 +200,27 @@ class Executor:
 
     @staticmethod
     def _launch(program: str, arguments: list[str], directory: str | None) -> None:
-        if Path(program).suffix.casefold() == ".lnk":
-            if os.name != "nt":
-                raise OSError("Windows shortcuts require Windows.")
+        try:
+            if Path(program).suffix.casefold() == ".lnk":
+                Executor._shell_launch(program, arguments, directory, "open")
+            else:
+                external_process([program, *arguments], cwd=directory, stdin=subprocess.DEVNULL)
+        except OSError as error:
+            if os.name != "nt" or getattr(error, "winerror", None) != 740:
+                raise
+            Executor._shell_launch(program, arguments, directory, "runas")
+
+    @staticmethod
+    def _shell_launch(program: str, arguments: list[str], directory: str | None, verb: str) -> None:
+        if os.name != "nt":
+            raise OSError("Windows app activation requires Windows.")
+        try:
             with external_program():
-                os.startfile(program, "open", subprocess.list2cmdline(arguments), directory or "")
-            return
-        external_process([program, *arguments], cwd=directory, stdin=subprocess.DEVNULL)
+                os.startfile(program, verb, subprocess.list2cmdline(arguments), directory or "")
+        except OSError as error:
+            if getattr(error, "winerror", None) == 1223:
+                raise CancelledError("Administrator launch cancelled.") from error
+            raise
 
     @staticmethod
     def _run_script(
