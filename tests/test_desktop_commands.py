@@ -15,6 +15,19 @@ def resolve(text):
 
 
 class DesktopCommandTests(unittest.TestCase):
+    def test_close_only_posts_to_matching_live_windows_and_preserves_tab_aliases(self):
+        chat = TabWindow(2, 12, "discord.exe")
+        stale = TabWindow(3, 12, "discord.exe")
+        other = TabWindow(4, 42, "notepad.exe")
+        desktop = Mock()
+        desktop.visible_windows.return_value = [chat, stale, other]
+        desktop.window.side_effect = [chat, other]
+        with patch("personal_ai.window_commands.WindowsDesktop", return_value=desktop):
+            result = Executor().execute(resolve("Close Discord."))
+            self.assertIn("1 of 2", result)
+            desktop.user.PostMessageW.assert_called_once_with(2, 0x10, 0, 0)
+        self.assertEqual(resolve("close this tab.").id, "builtin.close_tab")
+
     def test_power_and_audio_controls(self):
         executor = Executor()
         with patch("personal_ai.commands.sleep_pc") as sleep:

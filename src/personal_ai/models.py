@@ -15,6 +15,7 @@ class Action(StrictModel):
         "shutdown",
         "restart",
         "close_tab",
+        "close_app",
         "switch_window",
         "minimize_window",
         "snap_left",

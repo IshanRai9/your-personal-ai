@@ -53,6 +53,11 @@ class WindowsDesktop:
             ("IsIconic", [wintypes.HWND], wintypes.BOOL),
             ("ShowWindow", [wintypes.HWND, ctypes.c_int], wintypes.BOOL),
             ("SetForegroundWindow", [wintypes.HWND], wintypes.BOOL),
+            (
+                "PostMessageW",
+                [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM],
+                wintypes.BOOL,
+            ),
             ("GetAsyncKeyState", [ctypes.c_int], ctypes.c_short),
             ("UnhookWinEvent", [wintypes.HANDLE], wintypes.BOOL),
         ]:

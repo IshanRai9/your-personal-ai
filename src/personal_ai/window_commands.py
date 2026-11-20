@@ -9,7 +9,9 @@ def app_key(name: str) -> str:
     key = re.sub(r"[\s_-]+", "", name.casefold().removesuffix(".exe"))
     aliases = {"googlechrome": "chrome", "microsoftedge": "msedge", "visualstudiocode": "code"}
     for exe, (display, _) in TAB_APPS.items():
-        aliases[re.sub(r"[\s_-]+", "", display.casefold())] = exe.removesuffix(".exe")
+        aliases[re.sub(r"[\s_-]+", "", display.casefold())] = re.sub(
+            r"[\s_-]+", "", exe.removesuffix(".exe")
+        )
     return aliases.get(key, key)
 
 
@@ -25,6 +27,21 @@ def check_window(desktop, target):
         raise ValueError("First select the window you want to use.")
     if desktop.window(target.handle) != target:
         raise ValueError("The selected window is no longer available.")
+
+
+def close_app(name, cancelled):
+    desktop = WindowsDesktop()
+    windows = named_windows(desktop, name)
+    sent = 0
+    for window in windows:
+        if cancelled.is_set():
+            break
+        if desktop.window(window.handle) == window:
+            if desktop.user.PostMessageW(window.handle, 0x0010, 0, 0):  # WM_CLOSE
+                sent += 1
+    if not sent:
+        raise RuntimeError(f"Could not deliver a close request to {name}.")
+    return f"Asked {name} to close {sent} of {len(windows)} open windows."
 
 
 def activate(desktop, target, cancelled):

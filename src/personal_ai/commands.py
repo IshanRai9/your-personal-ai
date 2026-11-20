@@ -14,7 +14,7 @@ from personal_ai.models import Action, Command, Resolution
 from personal_ai.pc_controls import lock_pc, set_app_mute, sleep_pc
 from personal_ai.screenshots import capture_window
 from personal_ai.tabs import TabWindow, close_active_tab
-from personal_ai.window_commands import control_window
+from personal_ai.window_commands import close_app, control_window
 from personal_ai.windows import external_process, external_program
 
 _AUXILIARY_SHORTCUT = re.compile(
@@ -39,6 +39,7 @@ def builtin(kind, name, *phrases):
 # Bind literal user input only. The classifier continues to return registered IDs.
 PARAMETERS = {
     "switch_window": (r"switch to (.+)", "App name"),
+    "close_app": (r"close (?:the app )?(.+)", "App to close"),
     "open_folder": (
         r"open (?:(?:the |my )?(" + "|".join(PERSONAL_FOLDERS) + r")(?: folder)?|folder (.+))",
         "Folder name or local path",
@@ -55,10 +56,18 @@ def with_argument(command, value):
 
 
 def bind_request(text, commands):
+    request = normalize(text)
+    if any(
+        request == normalize(phrase)
+        for command in commands
+        if command.enabled
+        for phrase in [command.name, *command.phrases]
+    ):
+        return commands
     bound = []
     for command in commands:
         spec = PARAMETERS.get(command.actions[0].kind)
-        match = re.fullmatch(spec[0], text.strip(), re.IGNORECASE) if spec else None
+        match = re.fullmatch(spec[0], text.strip().rstrip(".!?"), re.IGNORECASE) if spec else None
         if match:
             value = next(group for group in match.groups() if group).strip().rstrip(".!?").strip()
             if value:
@@ -90,6 +99,7 @@ def builtin_commands() -> list[Command]:
             description="Close one active tab in the browser or tabbed app you were using.",
             phrases=[
                 "close tab",
+                "close the tab",
                 "close this tab",
                 "close current tab",
                 "close the active tab",
@@ -100,6 +110,7 @@ def builtin_commands() -> list[Command]:
             actions=[Action(kind="close_tab")],
         ),
         builtin("switch_window", "Switch to app"),
+        builtin("close_app", "Close app"),
         builtin("minimize_window", "Minimize this window", "minimize this", "minimize window"),
         builtin("snap_left", "Snap this window left", "snap left", "snap window left"),
         builtin("snap_right", "Snap this window right", "snap right", "snap window right"),
@@ -238,6 +249,9 @@ class Executor:
             if cancelled.is_set():
                 raise CancelledError("Command cancelled. Completed steps have already run.")
             progress(f"Running step {index} of {len(command.actions)}")
+            if action.kind == "close_app":
+                results.append(close_app(action.arguments[0], cancelled))
+                continue
             if action.kind in {"mute_app", "unmute_app"}:
                 results.append(set_app_mute(action.arguments[0], action.kind == "mute_app"))
                 continue
