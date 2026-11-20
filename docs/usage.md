@@ -32,6 +32,14 @@ Change the wake phrase in **Settings → General**. Wake detection uses a small 
 
 Apps are discovered from Windows Start Menu shortcuts. Enable or hide entries under **Settings → Apps**. Add other programs through custom commands.
 
+### App name corrections
+
+At startup the assistant builds an in-memory catalog from Start Menu shortcuts, Windows’ Apps folder (including Store apps), and registered App Paths. Hidden apps and auxiliary shortcuts are eligible for suggestions. The catalog stays on this PC, is rebuilt each launch, and is separate from the command list. An unregistered portable app needs a shortcut or a custom command to be discoverable.
+
+For example, type or say `open discrod`. If Discord is a close match, the assistant asks before opening it. Reply `yes` or `no`. When several names fit, choose a name or number. For voice requests, listen for the follow-up tone. Enable **Speak responses** in Settings to hear the question aloud.
+
+For `close discrod`, the assistant checks apps with open windows at the time of the request, including minimized windows. If no name is close enough, it lists the open apps to choose from. A confirmed close applies to the windows it found and uses the app's normal close behavior. Suggestions expire after a minute.
+
 ## Custom commands
 
 Open **Settings → Custom commands → New command**. Give the command a name, description, and example phrases, then add steps in the desired order.

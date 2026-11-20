@@ -127,7 +127,11 @@ def builtin_commands() -> list[Command]:
     ]
 
 
-def discover_apps() -> list[Command]:
+def is_auxiliary_app(name: str) -> bool:
+    return bool(_AUXILIARY_SHORTCUT.search(normalize(name)))
+
+
+def discover_apps(*, include_auxiliary=False) -> list[Command]:
     paths: dict[str, tuple[str, str]] = {}
     system = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
     for name, executable in [("Notepad", "notepad.exe"), ("Calculator", "calc.exe")]:
@@ -140,7 +144,7 @@ def discover_apps() -> list[Command]:
             continue
         folder = Path(root) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
         for path in folder.rglob("*.lnk"):
-            if _AUXILIARY_SHORTCUT.search(normalize(path.stem)):
+            if not include_auxiliary and is_auxiliary_app(path.stem):
                 continue
             paths[str(path).casefold()] = (path.stem, str(path))
     commands = []
@@ -166,21 +170,29 @@ class Resolver:
     def __init__(self, classify: Callable[[str, list[Command]], Resolution]):
         self.classify = classify
 
-    def resolve(self, text: str, commands: list[Command]) -> Resolution:
-        available = [command for command in commands if command.enabled]
+    @staticmethod
+    def exact_match(text: str, commands: list[Command]) -> Resolution | None:
         request = normalize(text)
-        if not request:
-            return Resolution(status="unknown")
         exact = [
             command.id
-            for command in available
-            if request in {normalize(phrase) for phrase in [command.name, *command.phrases]}
+            for command in commands
+            if command.enabled
+            and request
+            and request in {normalize(phrase) for phrase in [command.name, *command.phrases]}
         ]
         if len(exact) == 1:
             return Resolution(status="match", command_id=exact[0])
         if len(exact) > 1:
             return Resolution(status="clarify", candidates=exact)
-        if not available:
+        return None
+
+    def resolve(self, text: str, commands: list[Command]) -> Resolution:
+        exact = self.exact_match(text, commands)
+        if exact:
+            return exact
+        available = [command for command in commands if command.enabled]
+        request = normalize(text)
+        if not request or not available:
             return Resolution(status="unknown")
         common_words = {
             "the",

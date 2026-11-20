@@ -15,10 +15,18 @@ def app_key(name: str) -> str:
     return aliases.get(key, key)
 
 
+class NoOpenApp(ValueError):
+    def __init__(self, name, windows):
+        super().__init__(f"No open window found for {name}.")
+        self.name = name
+        self.windows = windows
+
+
 def named_windows(desktop, name):
-    matches = [w for w in desktop.visible_windows() if app_key(w.executable) == app_key(name)]
+    active = desktop.visible_windows()
+    matches = [w for w in active if app_key(w.executable) == app_key(name)]
     if not matches:
-        raise ValueError(f"No open window found for {name}.")
+        raise NoOpenApp(name, active)
     return matches
 
 
@@ -32,6 +40,10 @@ def check_window(desktop, target):
 def close_app(name, cancelled):
     desktop = WindowsDesktop()
     windows = named_windows(desktop, name)
+    return close_windows(desktop, name, windows, cancelled)
+
+
+def close_windows(desktop, name, windows, cancelled):
     sent = 0
     for window in windows:
         if cancelled.is_set():

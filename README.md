@@ -30,6 +30,8 @@ Type `open Notepad` and press Enter to try an exact command. For speech and natu
 
 Custom commands can chain app launches and scripts. Closing the assistant window keeps it in the tray. See the [user guide](docs/usage.md) for workflow setup, wake timing, supported tabbed apps, startup, and local data locations.
 
+If you mistype or mispronounce an app name, the assistant can suggest a correction and wait for your answer. Open requests use a private catalog of registered apps. Close requests check the apps with open windows.
+
 ## How commands run
 
 - **Speech.** Vosk listens for the wake phrase. A local voice activity detector ends command capture after a pause. Faster-whisper transcribes the audio in memory.

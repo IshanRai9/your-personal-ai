@@ -17,6 +17,7 @@ from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 
+from personal_ai.app_suggestions import App
 from personal_ai.commands import builtin_commands
 from personal_ai.config import SettingsStore
 from personal_ai.editor import ActionDialog, CommandDialog
@@ -29,6 +30,71 @@ from personal_ai.ui import MainWindow, apply_style
 
 
 class DesktopTests(unittest.TestCase):
+    def test_hidden_app_is_only_launched_after_explicit_confirmation(self):
+        from concurrent.futures import Future
+
+        hidden = Command(
+            id="app.hidden",
+            name="Example Studio",
+            phrases=["open Example Studio"],
+            actions=[Action(program="example.exe")],
+        )
+        catalog = Future()
+        catalog.set_result([App(hidden.name, hidden.actions[0].program)])
+        SettingsStore(self.directory).save(Settings(hidden_apps=[hidden.id]))
+        with (
+            patch("personal_ai.ui.discover_apps", return_value=[hidden]),
+            patch("personal_ai.ui.start_catalog", return_value=catalog),
+        ):
+            window = MainWindow(self.runtime)
+        self.assertNotIn(hidden.id, [c.id for c in window.available_commands()])
+        with (
+            patch.object(window.resolver, "classify", side_effect=AssertionError("unexpected LLM")),
+            patch("personal_ai.app_suggestions.Executor._launch") as launch,
+        ):
+            for request, response in [
+                ("open Example Studio", "no"),
+                ("open Exampel Studio", "yes"),
+            ]:
+                window.resolve_text(request)
+                self.wait_for_idle(window)
+                self.assertIn("Did you mean open Example Studio?", window.activity.toPlainText())
+                launch.assert_not_called()
+                window.resolve_text(response)
+                self.wait_for_idle(window)
+            launch.assert_called_once_with("example.exe", [], None)
+            window.resolve_text("yes")
+            launch.assert_called_once()
+        window.close()
+
+    def test_spoken_close_correction_waits_for_a_second_recording(self):
+        window = MainWindow(self.runtime)
+        live = TabWindow(4, 9, "discord.exe")
+        from unittest.mock import Mock
+
+        desktop = Mock()
+        desktop.visible_windows.return_value = [live]
+        desktop.window.return_value = live
+        with (
+            patch("personal_ai.window_commands.WindowsDesktop", return_value=desktop),
+            patch("personal_ai.app_suggestions.WindowsDesktop", return_value=desktop),
+            patch.object(QApplication, "beep"),
+            patch.object(window.microphone, "start"),
+            patch.object(window.microphone, "stop", return_value=np.zeros(16000)),
+            patch.object(window.transcriber, "transcribe", return_value="Yes."),
+        ):
+            window.handle_voice("Close Discrod.")
+            self.wait_for_idle(window)
+            QTest.qWait(25)
+            self.assertTrue(window.automatic_recording)
+            self.assertIn("Did you mean close discord?", window.activity.toPlainText())
+            desktop.user.PostMessageW.assert_not_called()
+            window.command_endpoint.last_speech = 1600
+            window.stop_recording()
+            self.wait_for_idle(window)
+            desktop.user.PostMessageW.assert_called_once_with(4, 0x10, 0, 0)
+        window.close()
+
     def test_tab_target_is_captured_before_understanding_and_forwarded_to_execution(self):
         window = MainWindow(self.runtime)
         original = TabWindow(111, 222, "chrome.exe")
