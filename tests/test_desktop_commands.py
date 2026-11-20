@@ -15,6 +15,28 @@ def resolve(text):
 
 
 class DesktopCommandTests(unittest.TestCase):
+    def test_power_and_audio_controls(self):
+        executor = Executor()
+        with patch("personal_ai.commands.sleep_pc") as sleep:
+            with self.assertRaises(PermissionError):
+                executor.execute(resolve("sleep"))
+            sleep.assert_not_called()
+            sleep.return_value = "Sleep requested."
+            executor.execute(resolve("sleep"), power_confirmed=True)
+            sleep.assert_called_once()
+        with patch("personal_ai.commands.lock_pc", return_value="Locked") as lock:
+            executor.execute(resolve("lock my computer"))
+            lock.assert_called_once()
+        chat, browser = Mock(), Mock()
+        chat.Process.name.return_value = "Discord.exe"
+        browser.Process.name.return_value = "chrome.exe"
+        with patch("personal_ai.pc_controls.playback_sessions", return_value=[chat, browser]):
+            executor.execute(resolve("mute audio for Discord"))
+            chat.SimpleAudioVolume.SetMute.assert_called_once_with(True, None)
+            executor.execute(resolve("unmute Discord"))
+            chat.SimpleAudioVolume.SetMute.assert_called_with(False, None)
+            browser.SimpleAudioVolume.SetMute.assert_not_called()
+
     def test_capture_writes_one_window_to_a_unique_local_png(self):
         from PIL import Image
 

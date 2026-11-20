@@ -36,6 +36,7 @@ The assistant uses a dedicated Ollama process at `127.0.0.1:11435`, with cloud f
 - Hold **Hold to speak** while speaking, then release to run the recognized command.
 - Enable **Wake listening**, say `Hey Assistant`, wait for the tone, then speak your command. Recording finishes after about 0.8 seconds without speech. If you say nothing for three seconds, it returns to wake listening. Commands have a ten-second recording limit.
 - Double-click an entry in the command list to run it directly.
+- Say `lock my computer` to lock Windows immediately, or `sleep` and confirm to suspend the PC. Use `mute audio for Discord` and `unmute Discord` to change that app's playback sessions.
 - Say `capture this window` to save a PNG of the selected window under `%LOCALAPPDATA%\YourPersonalAI\Screenshots`. The assistant displays the saved path. Protected or hardware-rendered content may appear blank.
 - Use `open Downloads` or `open folder C:\Projects` to open a folder in Explorer. Say `find budget.xlsx` or `find budget dot xlsx` to list up to 25 matching paths in your local Desktop, Documents, Downloads, Pictures, Music, and Videos folders.
 - Say `switch to Chrome` to bring its most recent open window forward. Use `minimize this`, `snap this window left`, or `snap this window right` on the window you were using before activating the assistant.

@@ -11,6 +11,7 @@ from pathlib import Path
 from personal_ai.config import data_directory
 from personal_ai.files import PERSONAL_FOLDERS, find_files, open_folder, personal_folders
 from personal_ai.models import Action, Command, Resolution
+from personal_ai.pc_controls import lock_pc, set_app_mute, sleep_pc
 from personal_ai.screenshots import capture_window
 from personal_ai.tabs import TabWindow, close_active_tab
 from personal_ai.window_commands import control_window
@@ -43,6 +44,8 @@ PARAMETERS = {
         "Folder name or local path",
     ),
     "find_file": (r"find (?:the file |file )?(.+)", "File name"),
+    "mute_app": (r"mute (?:audio (?:for|in) )?(.+)", "App to mute"),
+    "unmute_app": (r"unmute (?:audio (?:for|in) )?(.+)", "App to unmute"),
 }
 
 
@@ -102,6 +105,10 @@ def builtin_commands() -> list[Command]:
         builtin("snap_right", "Snap this window right", "snap right", "snap window right"),
         builtin("open_folder", "Open folder"),
         builtin("find_file", "Find file"),
+        builtin("lock", "Lock my computer", "lock my pc", "lock computer"),
+        builtin("sleep", "Sleep", "put my computer to sleep", "put my pc to sleep"),
+        builtin("mute_app", "Mute app"),
+        builtin("unmute_app", "Unmute app"),
         builtin(
             "capture_window", "Capture this window", "screenshot this window", "capture window"
         ),
@@ -231,6 +238,12 @@ class Executor:
             if cancelled.is_set():
                 raise CancelledError("Command cancelled. Completed steps have already run.")
             progress(f"Running step {index} of {len(command.actions)}")
+            if action.kind in {"mute_app", "unmute_app"}:
+                results.append(set_app_mute(action.arguments[0], action.kind == "mute_app"))
+                continue
+            if action.kind in {"lock", "sleep"}:
+                results.append(lock_pc() if action.kind == "lock" else sleep_pc())
+                continue
             if action.kind == "capture_window":
                 results.append(
                     capture_window(tab_target, self.directory / "Screenshots", cancelled)

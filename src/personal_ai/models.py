@@ -22,6 +22,10 @@ class Action(StrictModel):
         "open_folder",
         "find_file",
         "capture_window",
+        "lock",
+        "sleep",
+        "mute_app",
+        "unmute_app",
     ] = "launch"
     program: str = ""
     arguments: list[str] = Field(default_factory=list)
@@ -51,7 +55,7 @@ class Command(StrictModel):
 
     @property
     def requires_confirmation(self) -> bool:
-        return any(action.kind in {"shutdown", "restart"} for action in self.actions)
+        return any(action.kind in {"shutdown", "restart", "sleep"} for action in self.actions)
 
 
 class Settings(StrictModel):
