@@ -1,3 +1,4 @@
+import gc
 import os
 import subprocess
 import sys
@@ -11,7 +12,7 @@ import numpy as np
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
@@ -81,7 +82,10 @@ class DesktopTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.app = QApplication.instance() or QApplication([])
+        cls.app = QApplication.instance()
+        if cls.app is None:
+            cls.app = QApplication([])
+            cls.addClassCleanup(cls.app.shutdown)
         apply_style(cls.app)
 
     def setUp(self):
@@ -92,6 +96,13 @@ class DesktopTests(unittest.TestCase):
         self.runtime = LocalRuntime(self.directory)
 
     def tearDown(self):
+        # unittest has no outer Qt event loop to deliver pending widget and worker deletions.
+        self.app.processEvents()
+        for widget in self.app.topLevelWidgets():
+            if isinstance(widget, (MainWindow, SettingsDialog, CommandDialog, ActionDialog)):
+                widget.deleteLater()
+        self.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        gc.collect()
         self.runtime.stop()
         self.environment.stop()
         self.folder.cleanup()
