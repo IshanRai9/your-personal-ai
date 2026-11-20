@@ -8,6 +8,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from personal_ai.files import PERSONAL_FOLDERS, find_files, open_folder, personal_folders
 from personal_ai.models import Action, Command, Resolution
 from personal_ai.tabs import TabWindow, close_active_tab
 from personal_ai.window_commands import control_window
@@ -35,6 +36,11 @@ def builtin(kind, name, *phrases):
 # Bind literal user input only. The classifier continues to return registered IDs.
 PARAMETERS = {
     "switch_window": (r"switch to (.+)", "App name"),
+    "open_folder": (
+        r"open (?:(?:the |my )?(" + "|".join(PERSONAL_FOLDERS) + r")(?: folder)?|folder (.+))",
+        "Folder name or local path",
+    ),
+    "find_file": (r"find (?:the file |file )?(.+)", "File name"),
 }
 
 
@@ -49,7 +55,7 @@ def bind_request(text, commands):
         spec = PARAMETERS.get(command.actions[0].kind)
         match = re.fullmatch(spec[0], text.strip(), re.IGNORECASE) if spec else None
         if match:
-            value = match[1].strip().rstrip(".!?").strip()
+            value = next(group for group in match.groups() if group).strip().rstrip(".!?").strip()
             if value:
                 command = with_argument(command, value)
                 command.phrases = [*command.phrases, text]
@@ -92,6 +98,8 @@ def builtin_commands() -> list[Command]:
         builtin("minimize_window", "Minimize this window", "minimize this", "minimize window"),
         builtin("snap_left", "Snap this window left", "snap left", "snap window left"),
         builtin("snap_right", "Snap this window right", "snap right", "snap window right"),
+        builtin("open_folder", "Open folder"),
+        builtin("find_file", "Find file"),
     ]
 
 
@@ -215,6 +223,14 @@ class Executor:
             if cancelled.is_set():
                 raise CancelledError("Command cancelled. Completed steps have already run.")
             progress(f"Running step {index} of {len(command.actions)}")
+            if action.kind == "open_folder":
+                results.append(open_folder(action.arguments[0]))
+                continue
+            if action.kind == "find_file":
+                results.append(
+                    find_files(action.arguments[0], personal_folders().values(), cancelled)
+                )
+                continue
             if action.kind in {"switch_window", "minimize_window", "snap_left", "snap_right"}:
                 name = action.arguments[0] if action.arguments else ""
                 results.append(control_window(action.kind, name, tab_target, cancelled))

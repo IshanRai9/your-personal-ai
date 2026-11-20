@@ -1,5 +1,7 @@
+import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from personal_ai.commands import Executor, Resolver, bind_request, builtin_commands
@@ -13,6 +15,20 @@ def resolve(text):
 
 
 class DesktopCommandTests(unittest.TestCase):
+    def test_file_lookup_preserves_extension_and_reports_both_locations(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "Archive").mkdir()
+            for base in (root, root / "Archive"):
+                (base / "budget.xlsx").touch()
+            with patch("personal_ai.commands.personal_folders", return_value={"downloads": root}):
+                result = Executor().execute(resolve("find budget dot xlsx"))
+                self.assertEqual(
+                    set(result.splitlines()),
+                    {str(root / "budget.xlsx"), str(root / "Archive" / "budget.xlsx")},
+                )
+        self.assertEqual(resolve("Open Downloads").actions[0].arguments, ["Downloads"])
+
     def test_switch_matches_open_app_and_snap_targets_captured_window(self):
         target = TabWindow(12, 30, "chrome.exe")
         desktop = Mock(own_process_id=20)
