@@ -1,0 +1,41 @@
+name: Windows checks
+
+on:
+  push:
+    branches: [feat/local-assistant]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install uv
+        run: python -m pip install uv==0.13.5
+      - name: Install locked dependencies
+        run: uv sync --locked --python 3.12
+      - name: Lint
+        run: uv run --locked ruff check .
+      - name: Check formatting
+        run: uv run --locked ruff format --check .
+      - name: Run Windows tests
+        run: uv run --locked python -m unittest discover -s tests -v
+      - name: Build standalone app
+        if: github.event_name == 'workflow_dispatch'
+        run: uv run --locked python scripts/build_windows.py
+      - name: Upload portable bundle
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: YourPersonalAI-windows-x64
+          path: dist/YourPersonalAI/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7

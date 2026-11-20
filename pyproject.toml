@@ -2,6 +2,11 @@
 name = "your-personal-ai"
 version = "0.1.0"
 description = "A private Windows assistant for local voice and text commands."
+readme = "README.md"
+classifiers = [
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.12",
+]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "PySide6>=6.8,<7",
@@ -16,6 +21,10 @@ dependencies = [
 
 [project.scripts]
 personal-ai = "personal_ai.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/IshanRai9/your-personal-ai"
+Issues = "https://github.com/IshanRai9/your-personal-ai/issues"
 
 [build-system]
 requires = ["hatchling"]
