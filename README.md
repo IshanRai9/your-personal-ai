@@ -45,8 +45,6 @@ uv run --locked python scripts/build_windows.py
 
 Copy the entire `dist\YourPersonalAI` folder to a permanent location and double-click `YourPersonalAI.exe`. Keep the companion `_internal` folder beside it. The packaged app includes Python. To add Start Menu and sign-in shortcuts, run `.\YourPersonalAI.exe --install` from that permanent folder.
 
-Maintainers can also run **Actions → Windows checks → Run workflow** to test, build, and download the portable bundle from that run's artifacts.
-
 ## Development checks
 
 ```powershell
