@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from personal_ai.models import Action, Command, Resolution
+from personal_ai.tabs import TabWindow, close_active_tab
 from personal_ai.windows import external_process, external_program
 
 _AUXILIARY_SHORTCUT = re.compile(
@@ -39,6 +40,21 @@ def builtin_commands() -> list[Command]:
             description="Restart this computer.",
             phrases=["restart my computer", "reboot", "reboot my pc"],
             actions=[Action(kind="restart")],
+        ),
+        Command(
+            id="builtin.close_tab",
+            name="Close active tab",
+            description="Close one active tab in the browser or tabbed app you were using.",
+            phrases=[
+                "close tab",
+                "close this tab",
+                "close current tab",
+                "close the active tab",
+                "close browser tab",
+                "close the current tab",
+                "close active browser tab",
+            ],
+            actions=[Action(kind="close_tab")],
         ),
     ]
 
@@ -151,6 +167,7 @@ class Executor:
         power_confirmed: bool = False,
         progress: Callable[[str], None] = lambda _: None,
         cancelled: threading.Event | None = None,
+        tab_target: TabWindow | None = None,
     ) -> str:
         if not command.enabled:
             raise ValueError("This command is disabled.")
@@ -162,6 +179,9 @@ class Executor:
             if cancelled.is_set():
                 raise CancelledError("Command cancelled. Completed steps have already run.")
             progress(f"Running step {index} of {len(command.actions)}")
+            if action.kind == "close_tab":
+                results.append(close_active_tab(tab_target, cancelled))
+                continue
             if action.kind in {"shutdown", "restart"}:
                 flag = "/s" if action.kind == "shutdown" else "/r"
                 executable = (

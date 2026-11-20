@@ -36,6 +36,7 @@ The assistant uses a dedicated Ollama process at `127.0.0.1:11435`, with cloud f
 - Hold **Hold to speak** while speaking, then release to run the recognized command.
 - Enable **Wake listening**, say `Hey Assistant`, wait for the tone, then speak your command. Recording finishes after about 0.8 seconds without speech. If you say nothing for three seconds, it returns to wake listening. Commands have a ten-second recording limit.
 - Double-click an entry in the command list to run it directly.
+- Say or type `close active tab` (also `close this tab`). This targets the window you were using before opening the assistant. Supported apps: Chrome, Edge, Firefox, Brave, Opera, Vivaldi, Arc, Zen, VS Code, Notepad, Notepad++, Sublime Text, and File Explorer. It requests one tab close and leaves save/leave-page prompts in the app. Closing the last tab may also close that app's window. If you switch to a different window while the command is being understood, the assistant asks you to try again.
 - Shutdown and restart require confirmation. App launches and configured scripts run immediately.
 - Apps that require administrator access open the Windows UAC prompt. Approve it to launch the app, or cancel to stop the command and its remaining steps.
 - Turn optional spoken replies on in **Settings → General**.

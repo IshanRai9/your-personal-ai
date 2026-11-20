@@ -23,10 +23,28 @@ from personal_ai.instance import InstanceServer, server_name
 from personal_ai.models import Action, Command, Settings
 from personal_ai.runtime import LocalRuntime
 from personal_ai.settings_ui import SettingsDialog
+from personal_ai.tabs import TabWindow
 from personal_ai.ui import MainWindow, apply_style
 
 
 class DesktopTests(unittest.TestCase):
+    def test_tab_target_is_captured_before_understanding_and_forwarded_to_execution(self):
+        window = MainWindow(self.runtime)
+        original = TabWindow(111, 222, "chrome.exe")
+        different = TabWindow(333, 444, "notepad.exe")
+        with (
+            patch.object(window.tab_tracker, "capture", return_value=original) as capture,
+            patch.object(window.executor, "execute", return_value="Close requested") as execute,
+        ):
+            window.request.setText("close active tab")
+            window.submit()
+            capture.return_value = different
+            self.wait_for_idle(window)
+            execute.assert_called_once()
+            self.assertEqual(execute.call_args.kwargs["tab_target"], original)
+            self.assertEqual(execute.call_args.args[0].id, "builtin.close_tab")
+        window.close()
+
     def test_close_hides_to_tray_and_quit_exits(self):
         window = MainWindow(self.runtime)
         window.install_tray()

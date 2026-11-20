@@ -9,7 +9,7 @@ class StrictModel(BaseModel):
 
 
 class Action(StrictModel):
-    kind: Literal["launch", "script", "shutdown", "restart"] = "launch"
+    kind: Literal["launch", "script", "shutdown", "restart", "close_tab"] = "launch"
     program: str = ""
     arguments: list[str] = Field(default_factory=list)
     working_directory: str = ""
@@ -66,6 +66,10 @@ class Settings(StrictModel):
             raise ValueError("Custom commands must use their own IDs.")
         if any(command.requires_confirmation for command in self.commands):
             raise ValueError("Power actions are provided by the built-in commands.")
+        if any(
+            action.kind == "close_tab" for command in self.commands for action in command.actions
+        ):
+            raise ValueError("Tab closing is provided by the built-in command.")
         return self
 
 

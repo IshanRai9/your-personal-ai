@@ -29,6 +29,7 @@ from personal_ai.models import Command, Resolution
 from personal_ai.runtime import LocalRuntime
 from personal_ai.settings_ui import SettingsDialog
 from personal_ai.speech import CommandEndpoint, Microphone, Transcriber
+from personal_ai.tabs import TabTracker
 from personal_ai.wake import WakeListener
 from personal_ai.windows import Shortcuts
 from personal_ai.workers import Worker
@@ -87,6 +88,8 @@ class MainWindow(QMainWindow):
         self.apps = discover_apps()
         self.resolver = Resolver(runtime.classify)
         self.executor = Executor()
+        self.tab_tracker = TabTracker()
+        self.command_target = None
         self.transcriber = Transcriber(runtime.speech_directory)
         self.microphone = Microphone(self)
         self.speaker: QTextToSpeech | None = None
@@ -189,6 +192,10 @@ class MainWindow(QMainWindow):
             self.log("Setup", "Open Settings to download the local runtime and models.")
         self.request.setFocus()
         self.update_wake_button()
+        try:
+            self.tab_tracker.start()
+        except OSError as error:
+            self.log("Tab commands", str(error))
         QTimer.singleShot(0, self.resume_wake)
 
     def install_tray(self):
@@ -233,6 +240,7 @@ class MainWindow(QMainWindow):
     def show_window(self):
         if self.closing:
             return
+        self.tab_tracker.remember()
         was_hidden = not self.isVisible()
         self.showNormal()
         if was_hidden:
@@ -513,6 +521,7 @@ class MainWindow(QMainWindow):
         text = self.request.text().strip()
         if not text or self.worker or self.recording:
             return
+        self.command_target = self.tab_tracker.capture()
         self.request.clear()
         self.log("You", text)
         self.resolve_text(text)
@@ -547,6 +556,7 @@ class MainWindow(QMainWindow):
         self.execute(commands[identifier])
 
     def execute(self, command: Command):
+        tab_target = self.command_target
         confirmed = False
         if command.requires_confirmation:
             result = QMessageBox.question(
@@ -566,6 +576,7 @@ class MainWindow(QMainWindow):
                 power_confirmed=confirmed,
                 progress=progress,
                 cancelled=cancelled,
+                tab_target=tab_target,
             ),
             self.reply,
             f"Running {command.name}…",
@@ -574,6 +585,7 @@ class MainWindow(QMainWindow):
     def run_selected(self, item):
         if self.worker or self.recording:
             return
+        self.command_target = self.tab_tracker.capture()
         command = next(
             command
             for command in self.available_commands()
@@ -585,6 +597,7 @@ class MainWindow(QMainWindow):
     def start_recording(self, automatic=False):
         if self.worker or self.recording:
             return
+        self.command_target = self.tab_tracker.capture()
         self.pause_wake()
         self.recording = True
         self.automatic_recording = automatic
@@ -687,6 +700,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.closing = True
+        self.tab_tracker.stop()
         self.recording_timer.stop()
         if self.recording:
             self.recording = False
