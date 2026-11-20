@@ -21,6 +21,7 @@ class Action(StrictModel):
         "snap_right",
         "open_folder",
         "find_file",
+        "capture_window",
     ] = "launch"
     program: str = ""
     arguments: list[str] = Field(default_factory=list)

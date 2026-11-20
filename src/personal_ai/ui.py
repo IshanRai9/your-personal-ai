@@ -96,7 +96,7 @@ class MainWindow(QMainWindow):
         self.settings = self.store.load()
         self.apps = discover_apps()
         self.resolver = Resolver(runtime.classify)
-        self.executor = Executor()
+        self.executor = Executor(runtime.directory)
         self.tab_tracker = TabTracker()
         self.command_target = None
         self.transcriber = Transcriber(runtime.speech_directory)

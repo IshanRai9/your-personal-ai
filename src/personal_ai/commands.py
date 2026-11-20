@@ -8,8 +8,10 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from personal_ai.config import data_directory
 from personal_ai.files import PERSONAL_FOLDERS, find_files, open_folder, personal_folders
 from personal_ai.models import Action, Command, Resolution
+from personal_ai.screenshots import capture_window
 from personal_ai.tabs import TabWindow, close_active_tab
 from personal_ai.window_commands import control_window
 from personal_ai.windows import external_process, external_program
@@ -100,6 +102,9 @@ def builtin_commands() -> list[Command]:
         builtin("snap_right", "Snap this window right", "snap right", "snap window right"),
         builtin("open_folder", "Open folder"),
         builtin("find_file", "Find file"),
+        builtin(
+            "capture_window", "Capture this window", "screenshot this window", "capture window"
+        ),
     ]
 
 
@@ -205,6 +210,9 @@ class CancelledError(Exception):
 
 
 class Executor:
+    def __init__(self, directory=None):
+        self.directory = directory or data_directory()
+
     def execute(
         self,
         command: Command,
@@ -223,6 +231,11 @@ class Executor:
             if cancelled.is_set():
                 raise CancelledError("Command cancelled. Completed steps have already run.")
             progress(f"Running step {index} of {len(command.actions)}")
+            if action.kind == "capture_window":
+                results.append(
+                    capture_window(tab_target, self.directory / "Screenshots", cancelled)
+                )
+                continue
             if action.kind == "open_folder":
                 results.append(open_folder(action.arguments[0]))
                 continue

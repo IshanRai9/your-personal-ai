@@ -15,6 +15,29 @@ def resolve(text):
 
 
 class DesktopCommandTests(unittest.TestCase):
+    def test_capture_writes_one_window_to_a_unique_local_png(self):
+        from PIL import Image
+
+        target = TabWindow(22, 30, "example.exe")
+        desktop = Mock(own_process_id=20)
+        desktop.window.return_value = target
+        desktop.user.IsIconic.return_value = False
+        with (
+            tempfile.TemporaryDirectory() as folder,
+            patch("personal_ai.screenshots.WindowsDesktop", return_value=desktop),
+            patch(
+                "personal_ai.screenshots.ImageGrab.grab",
+                side_effect=lambda **_: Image.new("RGB", (23, 17)),
+            ) as grab,
+        ):
+            for _ in range(2):
+                Executor(Path(folder)).execute(resolve("capture this window"), tab_target=target)
+            grab.assert_called_with(window=22)
+            files = list((Path(folder) / "Screenshots").glob("*.png"))
+            self.assertEqual(len(files), 2)
+            with Image.open(files[0]) as image:
+                self.assertEqual(image.size, (23, 17))
+
     def test_file_lookup_preserves_extension_and_reports_both_locations(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
