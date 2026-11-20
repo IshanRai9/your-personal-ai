@@ -226,14 +226,14 @@ class DesktopTests(unittest.TestCase):
 
     def test_shutdown_checks_a_separate_recording_without_logging_or_resolving_it(self):
         dialog = SettingsDialog(Settings(), [], self.runtime, SettingsStore(self.directory))
-        dialog.shutdown_password.setText("autumn orchard")
+        dialog.shutdown_password.setText("“Sunflower!”")
         dialog.save()
-        self.assertNotIn("autumn", SettingsStore(self.directory).path.read_text())
+        self.assertNotIn("sunflower", SettingsStore(self.directory).path.read_text().lower())
         window = MainWindow(self.runtime)
         with (
             patch.object(window.microphone, "start"),
             patch.object(window.microphone, "stop", return_value=np.zeros(16000)),
-            patch.object(window.transcriber, "transcribe", return_value="Autumn orchard.") as hear,
+            patch.object(window.transcriber, "transcribe", return_value="Sunflower.") as hear,
             patch.object(QMessageBox, "question", side_effect=AssertionError("unexpected dialog")),
             patch.object(QApplication, "beep"),
             patch("subprocess.run") as run,
@@ -256,7 +256,7 @@ class DesktopTests(unittest.TestCase):
             window.stop_recording()
             self.wait_for_idle(window)
             self.assertEqual(run.call_args.args[0][1:], ["/s", "/t", "0"])
-            self.assertNotIn("orchard", window.activity.toPlainText().lower())
+            self.assertNotIn("sunflower", window.activity.toPlainText().lower())
         window.close()
 
     def test_missing_microphone_does_not_leave_recording_active(self):

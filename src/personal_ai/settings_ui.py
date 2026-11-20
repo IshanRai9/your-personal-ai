@@ -68,11 +68,10 @@ class SettingsDialog(QDialog):
         self.shutdown_password = QLineEdit()
         self.shutdown_password.setAccessibleName("Spoken shutdown password")
         self.shutdown_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.shutdown_password.setMaxLength(120)
         self.shutdown_password.setPlaceholderText(
             "Password set. Enter a new phrase to change it."
             if settings.shutdown_verifier
-            else "Choose 2 to 12 English words"
+            else "Choose 1 to 12 spoken words"
         )
         general_layout.addWidget(self.shutdown_password)
         details = QLabel(
