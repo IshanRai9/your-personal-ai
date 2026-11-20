@@ -10,6 +10,7 @@ from unittest.mock import call, patch
 from personal_ai.commands import CancelledError, Executor, Resolver, builtin_commands, discover_apps
 from personal_ai.config import SettingsStore
 from personal_ai.models import Action, Command, Resolution, Settings
+from personal_ai.passphrase import enroll
 
 
 class CommandTests(unittest.TestCase):
@@ -180,14 +181,17 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(set(result.candidates), {self.command.id, other.id})
 
     def test_power_actions_require_confirmation_at_execution_boundary(self):
-        executor = Executor()
         shutdown = builtin_commands()[0]
-        with patch("subprocess.run") as run:
-            with self.assertRaises(PermissionError):
-                executor.execute(shutdown)
+        with tempfile.TemporaryDirectory() as folder, patch("subprocess.run") as run:
+            executor = Executor(Path(folder))
+            store = SettingsStore(Path(folder))
+            store.save(Settings(shutdown_verifier=enroll("autumn orchard")))
+            for response in (None, "", "orchard", "autumn orchard plus"):
+                with self.assertRaises(PermissionError):
+                    executor.execute(shutdown, power_confirmed=True, shutdown_response=response)
             run.assert_not_called()
             run.return_value = subprocess.CompletedProcess([], 0, "", "")
-            result = executor.execute(shutdown, power_confirmed=True)
+            result = executor.execute(shutdown, shutdown_response="Autumn orchard.")
             self.assertIn("requested", result.lower())
             self.assertNotIn("/f", run.call_args.args[0])
 

@@ -132,19 +132,54 @@ class DesktopTests(unittest.TestCase):
         self.assertIn("completed", window.activity.toPlainText())
         window.close()
 
-    def test_shutdown_dialog_cancellation_and_confirmed_executor(self):
+    def test_unconfigured_shutdown_and_confirmed_restart(self):
         window = MainWindow(self.runtime)
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No):
             with patch("subprocess.run") as run:
                 window.execute(builtin_commands()[0])
                 run.assert_not_called()
-                self.assertIn("cancelled", window.activity.toPlainText())
+                self.assertIn("Set a spoken shutdown password", window.activity.toPlainText())
         with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
             with patch("subprocess.run") as run:
                 run.return_value = subprocess.CompletedProcess([], 0)
                 window.execute(builtin_commands()[1])
                 self.wait_for_idle(window)
                 self.assertEqual(run.call_args.args[0][1:], ["/r", "/t", "0"])
+        window.close()
+
+    def test_shutdown_checks_a_separate_recording_without_logging_or_resolving_it(self):
+        dialog = SettingsDialog(Settings(), [], self.runtime, SettingsStore(self.directory))
+        dialog.shutdown_password.setText("autumn orchard")
+        dialog.save()
+        self.assertNotIn("autumn", SettingsStore(self.directory).path.read_text())
+        window = MainWindow(self.runtime)
+        with (
+            patch.object(window.microphone, "start"),
+            patch.object(window.microphone, "stop", return_value=np.zeros(16000)),
+            patch.object(window.transcriber, "transcribe", return_value="Autumn orchard.") as hear,
+            patch.object(QMessageBox, "question", side_effect=AssertionError("unexpected dialog")),
+            patch.object(QApplication, "beep"),
+            patch("subprocess.run") as run,
+        ):
+            run.return_value = subprocess.CompletedProcess([], 0)
+            window.request.setText("shutdown")
+            window.submit()
+            self.wait_for_idle(window)
+            self.assertTrue(window.recording)
+            window.cancel()
+            window.stop_recording()
+            hear.assert_not_called()
+            run.assert_not_called()
+            window.execute(builtin_commands()[0])
+            window.stop_recording()  # silence
+            hear.assert_not_called()
+            run.assert_not_called()
+            window.execute(builtin_commands()[0])
+            window.command_endpoint.last_speech = 1600
+            window.stop_recording()
+            self.wait_for_idle(window)
+            self.assertEqual(run.call_args.args[0][1:], ["/s", "/t", "0"])
+            self.assertNotIn("orchard", window.activity.toPlainText().lower())
         window.close()
 
     def test_missing_microphone_does_not_leave_recording_active(self):

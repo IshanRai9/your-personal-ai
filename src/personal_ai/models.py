@@ -62,6 +62,7 @@ class Command(StrictModel):
 class Settings(StrictModel):
     version: Literal[1] = 1
     speak_replies: bool = False
+    shutdown_verifier: str = Field(default="", pattern=r"^(?:[0-9a-f]{32}:[0-9a-f]{64})?$")
     wake_enabled: bool = False
     wake_phrase: str = Field(default="Hey Assistant", min_length=1, max_length=80)
     commands: list[Command] = Field(default_factory=list)

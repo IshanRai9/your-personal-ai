@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from personal_ai.config import SettingsStore
 from personal_ai.editor import CommandDialog
 from personal_ai.models import Command, Settings
+from personal_ai.passphrase import enroll
 from personal_ai.runtime import MODEL, LocalRuntime
 from personal_ai.windows import Shortcuts
 from personal_ai.workers import Worker
@@ -63,6 +64,17 @@ class SettingsDialog(QDialog):
         self.wake_phrase.setMaxLength(80)
         self.wake_phrase.setPlaceholderText("Wake phrase, for example Hey Assistant")
         general_layout.addWidget(self.wake_phrase)
+        general_layout.addWidget(QLabel("Spoken shutdown password"))
+        self.shutdown_password = QLineEdit()
+        self.shutdown_password.setAccessibleName("Spoken shutdown password")
+        self.shutdown_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.shutdown_password.setMaxLength(120)
+        self.shutdown_password.setPlaceholderText(
+            "Password set. Enter a new phrase to change it."
+            if settings.shutdown_verifier
+            else "Choose 2 to 12 English words"
+        )
+        general_layout.addWidget(self.shutdown_password)
         details = QLabel(
             f"Command model · {MODEL}\nSpeech recognition · English\n\n"
             "Setup downloads the runtime and model files. Once setup completes, "
@@ -219,6 +231,8 @@ class SettingsDialog(QDialog):
 
     def save(self):
         try:
+            if self.shutdown_password.text():
+                self.settings.shutdown_verifier = enroll(self.shutdown_password.text())
             self.settings.speak_replies = self.speak.isChecked()
             self.settings.wake_phrase = self.wake_phrase.text()
             self.settings.wake_enabled = self.wake_enabled.isChecked()

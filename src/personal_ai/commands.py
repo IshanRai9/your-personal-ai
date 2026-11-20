@@ -8,9 +8,10 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from personal_ai.config import data_directory
+from personal_ai.config import SettingsStore, data_directory
 from personal_ai.files import PERSONAL_FOLDERS, find_files, open_folder, personal_folders
 from personal_ai.models import Action, Command, Resolution
+from personal_ai.passphrase import matches
 from personal_ai.pc_controls import lock_pc, set_app_mute, sleep_pc
 from personal_ai.screenshots import capture_window
 from personal_ai.tabs import TabWindow, close_active_tab
@@ -238,10 +239,16 @@ class Executor:
         progress: Callable[[str], None] = lambda _: None,
         cancelled: threading.Event | None = None,
         tab_target: TabWindow | None = None,
+        shutdown_response: str | None = None,
     ) -> str:
         if not command.enabled:
             raise ValueError("This command is disabled.")
-        if command.requires_confirmation and not power_confirmed:
+        if any(action.kind == "shutdown" for action in command.actions):
+            if not shutdown_response or not matches(
+                shutdown_response, SettingsStore(self.directory).load().shutdown_verifier
+            ):
+                raise PermissionError("Shutdown cancelled. The spoken password did not match.")
+        elif command.requires_confirmation and not power_confirmed:
             raise PermissionError("Confirm this power action before running it.")
         cancelled = cancelled or threading.Event()
         results = []

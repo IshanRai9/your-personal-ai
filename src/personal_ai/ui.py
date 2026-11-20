@@ -111,6 +111,7 @@ class MainWindow(QMainWindow):
         self.tray_startup_action = None
         self.recording = False
         self.automatic_recording = False
+        self.shutdown_challenge = None
         self.wake_listener: WakeListener | None = None
         self.wake_failed = False
         self.settings_open = False
@@ -306,13 +307,7 @@ class MainWindow(QMainWindow):
             if self.wake_listener:
                 self.wake_listener.stop()
             if self.automatic_recording:
-                self.recording_timer.stop()
-                self.recording = False
-                self.automatic_recording = False
-                self.microphone.stop()
-                self.command_endpoint = None
-                self.mic_button.setText("Hold to speak")
-                self.set_busy(False)
+                self.discard_recording()
             if not self.worker and not self.recording:
                 self.status.setText("Ready")
         self.update_wake_button()
@@ -574,6 +569,12 @@ class MainWindow(QMainWindow):
                 return
             command = with_argument(command, value.strip())
         confirmed = False
+        if action.kind == "shutdown":
+            if not self.settings.shutdown_verifier:
+                self.reply("Set a spoken shutdown password in Settings → General first.")
+                return
+            self.start_recording(automatic=True, shutdown_command=command)
+            return
         if command.requires_confirmation:
             result = QMessageBox.question(
                 self,
@@ -610,7 +611,7 @@ class MainWindow(QMainWindow):
         self.log("You", command.name)
         self.execute(command)
 
-    def start_recording(self, automatic=False):
+    def start_recording(self, automatic=False, shutdown_command=None):
         if self.worker or self.recording:
             return
         self.command_target = self.tab_tracker.capture()
@@ -639,10 +640,27 @@ class MainWindow(QMainWindow):
         self.send_button.setEnabled(False)
         self.settings_button.setEnabled(False)
         self.command_list.setEnabled(False)
+        if shutdown_command is not None:
+            self.shutdown_challenge = shutdown_command
+            self.cancel_button.setEnabled(True)
+            self.status.setText("Say your shutdown password after the tone.")
+            QApplication.beep()
+
+    def discard_recording(self):
+        self.recording_timer.stop()
+        self.recording = False
+        self.automatic_recording = False
+        self.shutdown_challenge = None
+        self.microphone.stop()
+        self.command_endpoint = None
+        self.mic_button.setText("Hold to speak")
+        self.set_busy(False)
 
     def stop_recording(self):
         if not self.recording:
             return
+        shutdown = self.shutdown_challenge
+        self.shutdown_challenge = None
         empty_command = (
             self.automatic_recording
             and self.command_endpoint is not None
@@ -656,7 +674,20 @@ class MainWindow(QMainWindow):
         self.command_endpoint = None
         if empty_command:
             self.set_busy(False)
-            self.reply("I didn’t hear a command. Please try again.")
+            self.reply(
+                "Shutdown cancelled." if shutdown else "I didn’t hear a command. Please try again."
+            )
+            return
+
+        if shutdown is not None:
+
+            def verify(progress, cancelled):
+                response = self.transcriber.transcribe(audio)
+                return self.executor.execute(
+                    shutdown, shutdown_response=response, cancelled=cancelled, progress=progress
+                )
+
+            self.begin(verify, self.reply, "Checking your spoken password locally…")
             return
 
         self.begin(
@@ -673,6 +704,11 @@ class MainWindow(QMainWindow):
         self.resolve_text(text)
 
     def cancel(self):
+        if self.shutdown_challenge is not None:
+            self.discard_recording()
+            self.status.setText("Ready")
+            self.reply("Shutdown cancelled.")
+            return
         if self.worker:
             self.worker.cancelled.set()
             self.status.setText("Cancelling…")
@@ -711,6 +747,8 @@ class MainWindow(QMainWindow):
         return super().event(event)
 
     def closeEvent(self, event):
+        if self.shutdown_challenge is not None:
+            self.discard_recording()
         if self.tray is not None and not self.quit_requested:
             self.hide()
             event.ignore()
