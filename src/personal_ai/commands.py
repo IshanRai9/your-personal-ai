@@ -12,7 +12,8 @@ from personal_ai.config import SettingsStore, data_directory
 from personal_ai.files import PERSONAL_FOLDERS, find_files, open_folder, personal_folders
 from personal_ai.models import Action, Command, Resolution
 from personal_ai.passphrase import matches
-from personal_ai.pc_controls import lock_pc, set_app_mute, sleep_pc
+from personal_ai.pc_controls import lock_pc, set_app_mute, set_system_sound, sleep_pc
+from personal_ai.radios import RADIO_KINDS, set_radio
 from personal_ai.screenshots import capture_window
 from personal_ai.tabs import TabWindow, close_active_tab
 from personal_ai.window_commands import close_app, control_window
@@ -121,10 +122,39 @@ def builtin_commands() -> list[Command]:
         builtin("sleep", "Sleep", "put my computer to sleep", "put my pc to sleep"),
         builtin("mute_app", "Mute app"),
         builtin("unmute_app", "Unmute app"),
+        *setting_commands(),
         builtin(
             "capture_window", "Capture this window", "screenshot this window", "capture window"
         ),
     ]
+
+
+def setting_commands():
+    for key, names in (
+        ("wifi", ("Wi-Fi", "wifi")),
+        ("bluetooth", ("Bluetooth", "blue tooth")),
+        ("sound", ("system sound", "sound")),
+    ):
+        for state, verb in (("on", "enable"), ("off", "disable")):
+            phrases = [
+                phrase
+                for name in names
+                for phrase in (
+                    f"turn {state} {name}",
+                    f"turn {name} {state}",
+                    f"{verb} {name}",
+                    f"switch {name} {state}",
+                    f"switch {state} {name}",
+                    f"{name} {state}",
+                )
+            ]
+            if key == "sound":
+                mute = "unmute" if state == "on" else "mute"
+                phrases.extend(
+                    f"{mute} {name}"
+                    for name in ("system sound", "sound", "speakers", "system audio")
+                )
+            yield builtin(f"{key}_{state}", f"Turn {state} {names[0]}", *phrases)
 
 
 def is_auxiliary_app(name: str) -> bool:
@@ -252,6 +282,7 @@ class Executor:
         cancelled: threading.Event | None = None,
         tab_target: TabWindow | None = None,
         shutdown_response: str | None = None,
+        radio_access=None,
     ) -> str:
         if not command.enabled:
             raise ValueError("This command is disabled.")
@@ -268,6 +299,13 @@ class Executor:
             if cancelled.is_set():
                 raise CancelledError("Command cancelled. Completed steps have already run.")
             progress(f"Running step {index} of {len(command.actions)}")
+            setting, _, state = action.kind.partition("_")
+            if setting in RADIO_KINDS:
+                results.append(set_radio(setting, state == "on", radio_access, cancelled))
+                continue
+            if setting == "sound":
+                results.append(set_system_sound(state == "on"))
+                continue
             if action.kind == "close_app":
                 results.append(close_app(action.arguments[0], cancelled))
                 continue

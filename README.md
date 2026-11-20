@@ -26,6 +26,8 @@ Type `open Notepad` and press Enter to try an exact command. For speech and natu
 | `open Downloads` / `find budget.xlsx` | Opens Explorer or lists matching paths in your local personal folders. |
 | `capture this window` | Saves a PNG locally and displays its path. |
 | `mute audio for Discord` | Mutes that app's playback sessions. |
+| `turn Wi-Fi off` / `enable Bluetooth` | Changes the selected Windows radio and checks its resulting state. |
+| `turn sound off` / `unmute speakers` | Mutes or unmutes the default Windows audio output. |
 | `shutdown` | Listens for a fresh recording of the passphrase you set in Settings. |
 
 Custom commands can chain app launches and scripts. Closing the assistant window keeps it in the tray. See the [user guide](docs/usage.md) for workflow setup, wake timing, supported tabbed apps, startup, and local data locations.

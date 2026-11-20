@@ -46,6 +46,7 @@ from personal_ai.commands import (
 )
 from personal_ai.config import SettingsStore
 from personal_ai.models import Command, Resolution
+from personal_ai.radios import RADIO_KINDS, request_radio_access
 from personal_ai.runtime import LocalRuntime
 from personal_ai.settings_ui import SettingsDialog
 from personal_ai.speech import CommandEndpoint, Microphone, Transcriber
@@ -682,6 +683,14 @@ class MainWindow(QMainWindow):
                 return
             confirmed = True
 
+        radio_access = None
+        if action.kind.partition("_")[0] in RADIO_KINDS:
+            try:
+                radio_access = request_radio_access()
+            except OSError as error:
+                self.reply(f"Could not request Windows radio access. {error}")
+                return
+
         def run(progress, cancelled):
             try:
                 return self.executor.execute(
@@ -690,6 +699,7 @@ class MainWindow(QMainWindow):
                     progress=progress,
                     cancelled=cancelled,
                     tab_target=tab_target,
+                    radio_access=radio_access,
                 )
             except NoOpenApp as error:
                 if action.kind != "close_app":

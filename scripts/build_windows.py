@@ -23,6 +23,9 @@ subprocess.run(
         "vosk",
         "--collect-data",
         "faster_whisper",
+        # The native radio projection loads the WinRT collection projection dynamically.
+        "--hidden-import",
+        "winrt.windows.foundation.collections",
         "--copy-metadata",
         "faster-whisper",
         "--copy-metadata",

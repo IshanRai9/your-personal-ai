@@ -72,3 +72,20 @@ def set_app_mute(name, muted):
         return mute_sessions(name, muted)
     finally:
         comtypes.CoUninitialize()
+
+
+def set_system_sound(enabled):
+    comtypes.CoInitialize()
+    try:
+        speakers = AudioUtilities.GetSpeakers()
+        if speakers is None:
+            raise RuntimeError("Windows found no default audio output.")
+        volume = speakers.EndpointVolume
+        muted = not enabled
+        if bool(volume.GetMute()) != muted:
+            volume.SetMute(muted, None)
+        if bool(volume.GetMute()) != muted:
+            raise RuntimeError("Windows could not confirm the system sound setting.")
+        return "System sound is unmuted." if enabled else "System sound is muted."
+    finally:
+        comtypes.CoUninitialize()

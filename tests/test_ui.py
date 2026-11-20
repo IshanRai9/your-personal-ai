@@ -30,6 +30,29 @@ from personal_ai.ui import MainWindow, apply_style
 
 
 class DesktopTests(unittest.TestCase):
+    def test_radio_consent_starts_on_ui_thread_and_result_reaches_worker(self):
+        import threading
+
+        window = MainWindow(self.runtime)
+        ui_thread = threading.get_ident()
+        access = object()
+
+        def consent():
+            self.assertEqual(threading.get_ident(), ui_thread)
+            return access
+
+        with (
+            patch("personal_ai.ui.request_radio_access", side_effect=consent) as request,
+            patch("personal_ai.commands.set_radio", return_value="Wi-Fi is off.") as radio,
+        ):
+            window.request.setText("turn wifi off")
+            window.submit()
+            self.wait_for_idle(window)
+            request.assert_called_once()
+            self.assertEqual(radio.call_args.args[:3], ("wifi", False, access))
+            self.assertIn("Wi-Fi is off.", window.activity.toPlainText())
+        window.close()
+
     def test_hidden_app_is_only_launched_after_explicit_confirmation(self):
         from concurrent.futures import Future
 

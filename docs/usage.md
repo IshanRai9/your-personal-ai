@@ -15,6 +15,8 @@ Local model setup is available through **Settings → General → Download / rep
 ## Commands
 
 - Type a request such as `open Notepad` and press Enter.
+- Use `turn Wi-Fi on`, `turn Wi-Fi off`, `enable Bluetooth`, or `disable Bluetooth` to control the corresponding Windows radios. Windows may ask for radio access. Turning a radio off disconnects devices or networks using it. Typed commands continue working offline.
+- Say `mute speakers` or `turn sound on` to mute or unmute the default output while preserving the volume level.
 - Hold **Hold to speak** while speaking, then release to run the recognized command.
 - Enable **Wake listening**, say `Hey Assistant`, wait for the tone, then speak your command. Recording finishes after about 0.8 seconds without speech. If you say nothing for three seconds, it returns to wake listening. Commands have a ten-second recording limit.
 - Double-click an entry in the command list to run it directly.

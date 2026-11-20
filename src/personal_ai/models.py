@@ -27,6 +27,12 @@ class Action(StrictModel):
         "sleep",
         "mute_app",
         "unmute_app",
+        "wifi_on",
+        "wifi_off",
+        "bluetooth_on",
+        "bluetooth_off",
+        "sound_on",
+        "sound_off",
     ] = "launch"
     program: str = ""
     arguments: list[str] = Field(default_factory=list)
