@@ -23,7 +23,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from personal_ai.commands import CancelledError, Executor, Resolver, builtin_commands, discover_apps
+from personal_ai.commands import (
+    PARAMETERS,
+    CancelledError,
+    Executor,
+    Resolver,
+    bind_request,
+    builtin_commands,
+    discover_apps,
+    with_argument,
+)
 from personal_ai.config import SettingsStore
 from personal_ai.models import Command, Resolution
 from personal_ai.runtime import LocalRuntime
@@ -527,15 +536,15 @@ class MainWindow(QMainWindow):
         self.resolve_text(text)
 
     def resolve_text(self, text):
-        commands = self.available_commands()
+        commands = bind_request(text, self.available_commands())
         self.begin(
             lambda _progress, _cancelled: self.resolver.resolve(text, commands),
-            self.handle_resolution,
+            lambda result: self.handle_resolution(result, commands),
             "Understanding your command…",
         )
 
-    def handle_resolution(self, result: Resolution):
-        commands = {command.id: command for command in self.available_commands()}
+    def handle_resolution(self, result: Resolution, available):
+        commands = {command.id: command for command in available}
         if result.status == "unknown":
             self.reply(
                 "I couldn’t find a configured command for that request. "
@@ -557,6 +566,13 @@ class MainWindow(QMainWindow):
 
     def execute(self, command: Command):
         tab_target = self.command_target
+        action = command.actions[0]
+        if action.kind in PARAMETERS and not action.arguments:
+            value, ok = QInputDialog.getText(self, command.name, PARAMETERS[action.kind][1])
+            if not ok or not value.strip():
+                self.reply("Command cancelled.")
+                return
+            command = with_argument(command, value.strip())
         confirmed = False
         if command.requires_confirmation:
             result = QMessageBox.question(

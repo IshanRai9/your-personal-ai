@@ -9,7 +9,17 @@ class StrictModel(BaseModel):
 
 
 class Action(StrictModel):
-    kind: Literal["launch", "script", "shutdown", "restart", "close_tab"] = "launch"
+    kind: Literal[
+        "launch",
+        "script",
+        "shutdown",
+        "restart",
+        "close_tab",
+        "switch_window",
+        "minimize_window",
+        "snap_left",
+        "snap_right",
+    ] = "launch"
     program: str = ""
     arguments: list[str] = Field(default_factory=list)
     working_directory: str = ""
@@ -67,9 +77,11 @@ class Settings(StrictModel):
         if any(command.requires_confirmation for command in self.commands):
             raise ValueError("Power actions are provided by the built-in commands.")
         if any(
-            action.kind == "close_tab" for command in self.commands for action in command.actions
+            action.kind not in {"launch", "script"}
+            for command in self.commands
+            for action in command.actions
         ):
-            raise ValueError("Tab closing is provided by the built-in command.")
+            raise ValueError("Custom commands can only launch apps or run configured scripts.")
         return self
 
 

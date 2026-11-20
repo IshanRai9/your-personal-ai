@@ -131,12 +131,41 @@ class WindowsDesktop:
             self.user.ShowWindow(handle, 9)
         self.user.SetForegroundWindow(handle)
 
+    def visible_windows(self) -> list[TabWindow]:
+        callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        self.user.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+        self.user.IsWindowVisible.argtypes = [wintypes.HWND]
+        self.user.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+        self.user.GetWindow.restype = wintypes.HWND
+        windows = []
+
+        @callback_type
+        def collect(handle, _):
+            if self.user.IsWindowVisible(handle) and not self.user.GetWindow(handle, 4):
+                window = self.window(handle)
+                if (
+                    window
+                    and window.executable
+                    and window.process_id != self.own_process_id
+                    and window.window_class not in _SHELL_CLASSES
+                    and window.executable not in _SHELL_APPS
+                ):
+                    windows.append(window)
+            return True
+
+        if not self.user.EnumWindows(collect, 0):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return windows
+
     def modifiers_down(self) -> bool:
         return any(
             self.user.GetAsyncKeyState(key) & 0x8000 for key in (0x10, 0x11, 0x12, 0x5B, 0x5C)
         )
 
     def send_close(self, key: int):
+        self.send_shortcut(0x11, key)
+
+    def send_shortcut(self, modifier: int, key: int):
         class Keyboard(ctypes.Structure):
             _fields_ = [
                 ("vk", wintypes.WORD),
@@ -168,17 +197,24 @@ class WindowsDesktop:
         send = self.user.SendInput
         send.argtypes = [wintypes.UINT, ctypes.POINTER(Input), ctypes.c_int]
         send.restype = wintypes.UINT
-        events = (Input * 4)(event(0x11), event(key), event(key, 2), event(0x11, 2))
+        extended = 1 if key in (0x25, 0x27) else 0
+        mod_flags = 1 if modifier == 0x5B else 0
+        events = (Input * 4)(
+            event(modifier, mod_flags),
+            event(key, extended),
+            event(key, extended | 2),
+            event(modifier, mod_flags | 2),
+        )
         sent = send(len(events), events, ctypes.sizeof(Input))
         if sent != len(events):
             if sent:
-                releases = (Input * 2)(event(key, 2), event(0x11, 2))
+                releases = (Input * 2)(event(key, extended | 2), event(modifier, mod_flags | 2))
                 send(len(releases), releases, ctypes.sizeof(Input))
                 raise OSError(
-                    "Windows only partly sent the tab shortcut. Check the app before retrying."
+                    "Windows only partly sent the shortcut. Check the app before retrying."
                 )
             raise OSError(
-                "Windows blocked the tab shortcut. Check the app's administrator permissions."
+                "Windows blocked the shortcut. Check the app's administrator permissions."
             )
 
 

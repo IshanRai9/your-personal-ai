@@ -10,6 +10,7 @@ from pathlib import Path
 
 from personal_ai.models import Action, Command, Resolution
 from personal_ai.tabs import TabWindow, close_active_tab
+from personal_ai.window_commands import control_window
 from personal_ai.windows import external_process, external_program
 
 _AUXILIARY_SHORTCUT = re.compile(
@@ -23,6 +24,37 @@ _AUXILIARY_SHORTCUT = re.compile(
 
 def normalize(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", text.casefold()).split())
+
+
+def builtin(kind, name, *phrases):
+    return Command(
+        id=f"builtin.{kind}", name=name, phrases=list(phrases), actions=[Action(kind=kind)]
+    )
+
+
+# Bind literal user input only. The classifier continues to return registered IDs.
+PARAMETERS = {
+    "switch_window": (r"switch to (.+)", "App name"),
+}
+
+
+def with_argument(command, value):
+    action = command.actions[0].model_copy(update={"arguments": [value]})
+    return command.model_copy(update={"actions": [action]})
+
+
+def bind_request(text, commands):
+    bound = []
+    for command in commands:
+        spec = PARAMETERS.get(command.actions[0].kind)
+        match = re.fullmatch(spec[0], text.strip(), re.IGNORECASE) if spec else None
+        if match:
+            value = match[1].strip().rstrip(".!?").strip()
+            if value:
+                command = with_argument(command, value)
+                command.phrases = [*command.phrases, text]
+        bound.append(command)
+    return bound
 
 
 def builtin_commands() -> list[Command]:
@@ -56,6 +88,10 @@ def builtin_commands() -> list[Command]:
             ],
             actions=[Action(kind="close_tab")],
         ),
+        builtin("switch_window", "Switch to app"),
+        builtin("minimize_window", "Minimize this window", "minimize this", "minimize window"),
+        builtin("snap_left", "Snap this window left", "snap left", "snap window left"),
+        builtin("snap_right", "Snap this window right", "snap right", "snap window right"),
     ]
 
 
@@ -179,6 +215,10 @@ class Executor:
             if cancelled.is_set():
                 raise CancelledError("Command cancelled. Completed steps have already run.")
             progress(f"Running step {index} of {len(command.actions)}")
+            if action.kind in {"switch_window", "minimize_window", "snap_left", "snap_right"}:
+                name = action.arguments[0] if action.arguments else ""
+                results.append(control_window(action.kind, name, tab_target, cancelled))
+                continue
             if action.kind == "close_tab":
                 results.append(close_active_tab(tab_target, cancelled))
                 continue
