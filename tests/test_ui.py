@@ -6,7 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -15,6 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtTest import QTest
+from PySide6.QtTextToSpeech import QTextToSpeech
 from PySide6.QtWidgets import QApplication, QDialogButtonBox, QMessageBox
 
 from personal_ai.app_suggestions import App
@@ -22,7 +23,7 @@ from personal_ai.commands import builtin_commands
 from personal_ai.config import SettingsStore
 from personal_ai.editor import ActionDialog, CommandDialog
 from personal_ai.instance import InstanceServer, server_name
-from personal_ai.models import Action, Command, Settings
+from personal_ai.models import Action, Command, Resolution, Settings
 from personal_ai.runtime import LocalRuntime
 from personal_ai.settings_ui import SettingsDialog
 from personal_ai.tabs import TabWindow
@@ -30,6 +31,46 @@ from personal_ai.ui import MainWindow, apply_style
 
 
 class DesktopTests(unittest.TestCase):
+    def test_voice_clarification_finishes_playback_before_listening(self):
+        window = MainWindow(self.runtime)
+        window.settings.speak_replies = True
+        window.speaker = Mock()
+        window.speaker.state.return_value = QTextToSpeech.State.Ready
+        options = [
+            c for c in builtin_commands() if c.id in {"builtin.close_tab", "builtin.close_app"}
+        ]
+        result = Resolution(status="clarify", candidates=[c.id for c in options])
+        window.voice_request = True
+        with (
+            patch.object(window, "start_recording") as listen,
+            patch.object(window, "execute") as run,
+        ):
+            window.handle_resolution(result, options)
+            QTest.qWait(20)  # WinRT can initially remain Ready after say().
+            listen.assert_not_called()
+            prompt = window.speaker.say.call_args.args[0]
+            self.assertIn("1. Close active tab", prompt)
+            self.assertIn("2. Close app", prompt)
+            window.speaker_state_changed(QTextToSpeech.State.Speaking)
+            window.speaker_state_changed(QTextToSpeech.State.Ready)
+            QTest.qWait(20)
+            listen.assert_called_once_with(automatic=True)
+            window.handle_voice("Number one.", window.answer_question)
+            run.assert_called_once_with(options[0])
+        window.close()
+
+    def test_spoken_missing_app_name_binds_only_the_answer(self):
+        window = MainWindow(self.runtime)
+        window.voice_request = True
+        close = next(c for c in builtin_commands() if c.id == "builtin.close_app")
+        with patch.object(window, "reply") as say:
+            window.execute(close)
+            say.assert_called_once_with("Which app do you want to close?", prompt=True)
+            with patch.object(window, "execute") as run:
+                window.handle_voice("Calculator.", window.answer_question)
+                self.assertEqual(run.call_args.args[0].actions[0].arguments, ["Calculator"])
+        window.close()
+
     def test_radio_consent_starts_on_ui_thread_and_result_reaches_worker(self):
         import threading
 

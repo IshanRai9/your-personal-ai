@@ -29,6 +29,7 @@ Local model setup is available through **Settings → General → Download / rep
 - Set your **Spoken shutdown password** in **Settings → General**. Choose 1 to 12 words you can say in English. Contractions, hyphens, and sentence punctuation are accepted. Spell out numbers. Say or type `shutdown`, wait for the tone, then speak the phrase. A matching recording confirms shutdown. Silence, Cancel, or a mismatch ends the request. Verification uses local speech recognition and a salted password hash. The confirmation recording and transcript stay out of the activity log. Anyone who knows the phrase can speak it. Restart and sleep use the confirmation dialog.
 - Apps that require administrator access open the Windows UAC prompt. Approve it to launch the app, or cancel to stop the command and its remaining steps.
 - Turn optional spoken replies on in **Settings → General**.
+- When a spoken command needs an app name or a choice, listen to the question and answer after the tone. For a list, say a name or number, or say `cancel`.
 
 Change the wake phrase in **Settings → General**. Wake detection uses a small local Vosk model, installed by setup. It works while the assistant is running, including when its window is hidden in the tray. The wake toggle turns background microphone listening on or off. Listening pauses during commands, settings, and spoken replies. Quitting the assistant stops listening.
 

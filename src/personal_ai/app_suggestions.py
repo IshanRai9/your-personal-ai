@@ -159,23 +159,26 @@ class AppQuestion:
         )
 
     def selection(self, answer):
-        exact_name = next(
-            (app for app in self.choices if app.name.casefold() == answer.strip().casefold()), None
-        )
-        if exact_name:
-            return exact_name
-        answer = normalize(answer)
-        if len(self.choices) == 1 and answer in YES_ANSWERS:
+        if len(self.choices) == 1 and normalize(answer) in YES_ANSWERS:
             return self.choices[0]
-        for index, app in enumerate(self.choices, 1):
-            numbers = {str(index), f"number {index}"}
-            if index <= 10:
-                word = "one two three four five six seven eight nine ten".split()[index - 1]
-                numbers.update((word, f"number {word}"))
-            if answer in numbers:
-                return app
-        names = [app for app in self.choices if answer == normalize(app.name)]
-        return names[0] if len(names) == 1 else None
+        index = choice_index(answer, [app.name for app in self.choices])
+        return self.choices[index] if index is not None else None
+
+
+def choice_index(answer, names):
+    exact = [i for i, name in enumerate(names) if name.casefold() == answer.strip().casefold()]
+    if len(exact) == 1:
+        return exact[0]
+    answer = normalize(answer)
+    words = "one two three four five six seven eight nine ten".split()
+    for index in range(len(names)):
+        numbers = {str(index + 1), f"number {index + 1}"}
+        if index < len(words):
+            numbers.update((words[index], f"number {words[index]}"))
+        if answer in numbers:
+            return index
+    matches = [i for i, name in enumerate(names) if normalize(name) == answer]
+    return matches[0] if len(matches) == 1 else None
 
 
 def close_question(name, windows):

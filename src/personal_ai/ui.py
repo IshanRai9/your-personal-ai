@@ -28,6 +28,7 @@ from personal_ai.app_suggestions import (
     YES_ANSWERS,
     AppQuestion,
     app_request,
+    choice_index,
     close_question,
     ranked_apps,
     start_catalog,
@@ -110,13 +111,14 @@ class MainWindow(QMainWindow):
         shortcuts = discover_apps(include_auxiliary=True)
         self.apps = [app for app in shortcuts if not is_auxiliary_app(app.name)]
         self.app_catalog = start_catalog(shortcuts)
-        self.app_question = None
+        self.answer_question = None
         self.voice_request = False
         self.listen_for_answer = False
+        self.prompt_playing = False
         self.recorded_question = None
         self.question_timer = QTimer(self)
         self.question_timer.setSingleShot(True)
-        self.question_timer.timeout.connect(self.clear_app_question)
+        self.question_timer.timeout.connect(self.clear_question)
         self.resolver = Resolver(runtime.classify)
         self.executor = Executor(runtime.directory)
         self.tab_tracker = TabTracker()
@@ -325,7 +327,7 @@ class MainWindow(QMainWindow):
         if enabled:
             self.resume_wake()
         else:
-            self.clear_app_question()
+            self.clear_question()
             self.pause_wake()
             if self.wake_listener:
                 self.wake_listener.stop()
@@ -342,7 +344,13 @@ class MainWindow(QMainWindow):
             self.microphone.stop()
 
     def resume_wake(self):
-        if self.listen_for_answer and self.app_question:
+        if self.prompt_playing or QApplication.activeModalWidget() is not None:
+            return
+        if self.shutdown_challenge is not None:
+            if not (self.recording or self.worker or self.closing or self.settings_open):
+                self.start_recording(automatic=True, shutdown_command=self.shutdown_challenge)
+            return
+        if self.listen_for_answer and self.answer_question:
             if self.recording or self.worker or self.settings_open or self.closing:
                 return
             if self.speaker and self.speaker.state() not in {
@@ -416,7 +424,9 @@ class MainWindow(QMainWindow):
 
     def wake_detected(self):
         if (
-            self.worker
+            self.prompt_playing
+            or QApplication.activeModalWidget() is not None
+            or self.worker
             or self.recording
             or self.closing
             or self.settings_open
@@ -491,7 +501,7 @@ class MainWindow(QMainWindow):
         self.activity.setTextCursor(cursor)
         self.activity.ensureCursorVisible()
 
-    def reply(self, text):
+    def reply(self, text, *, prompt=False):
         self.log("Assistant", text)
         if self.settings.speak_replies:
             if self.speaker is None:
@@ -502,11 +512,14 @@ class MainWindow(QMainWindow):
                 self.status.setText("Spoken replies unavailable. Install a Windows speech voice.")
             else:
                 self.pause_wake()
-                self.speaker.say(text[:1200])
+                # Windows can still report Ready while say() starts asynchronously.
+                self.prompt_playing = prompt
+                self.speaker.say(text if prompt else text[:1200])
 
     def speaker_state_changed(self, state):
         if state in {QTextToSpeech.State.Ready, QTextToSpeech.State.Error}:
-            self.resume_wake()
+            self.prompt_playing = False
+            QTimer.singleShot(0, self.resume_wake)
         else:
             self.pause_wake()
 
@@ -562,33 +575,33 @@ class MainWindow(QMainWindow):
         text = self.request.text().strip()
         if not text or self.worker or self.recording:
             return
-        self.command_target = self.tab_tracker.capture()
+        if not self.answer_question:
+            self.command_target = self.tab_tracker.capture()
         self.request.clear()
         self.log("You", text)
         self.resolve_text(text)
 
-    def clear_app_question(self):
-        self.app_question = None
+    def clear_question(self):
+        self.answer_question = None
         self.listen_for_answer = False
         self.question_timer.stop()
 
-    def ask_about_app(self, question):
-        self.clear_app_question()
-        if question.choices:
-            self.app_question = question
-            self.question_timer.start(60000)
-            self.listen_for_answer = self.voice_request
-        self.reply(question.prompt())
+    def ask_question(self, text, accept):
+        self.clear_question()
+        self.answer_question = accept
+        self.listen_for_answer = self.voice_request
+        self.question_timer.start(60000)
+        self.reply(text, prompt=True)
         if self.listen_for_answer:
             QTimer.singleShot(0, self.resume_wake)
 
-    def resolve_text(self, text, *, voice=False):
-        self.voice_request = voice
-        answer = normalize(text)
-        if self.app_question:
-            question = self.app_question
+    def ask_about_app(self, question):
+        if not question.choices:
+            self.reply(question.prompt())
+            return
+
+        def accept(text):
             choice = question.selection(text)
-            self.clear_app_question()
             if choice:
                 self.begin(
                     lambda _, cancelled: choice.run(cancelled),
@@ -596,16 +609,28 @@ class MainWindow(QMainWindow):
                     f"Requesting Windows to {question.verb} {choice.name}…",
                 )
                 return
-            if answer in NO_ANSWERS:
-                self.reply("Cancelled.")
-                return
-            if answer in YES_ANSWERS or answer.isdecimal():
+            if normalize(text) in YES_ANSWERS or normalize(text).isdecimal():
                 self.ask_about_app(question)
                 return
             if not app_request(text):
                 self.reply("I didn't recognize that choice. App request cancelled.")
                 return
-        elif answer in YES_ANSWERS | NO_ANSWERS:
+            self.resolve_text(text, voice=self.voice_request)
+
+        self.ask_question(question.prompt(), accept)
+
+    def resolve_text(self, text, *, voice=False):
+        self.voice_request = voice
+        answer = normalize(text)
+        if self.answer_question:
+            accept = self.answer_question
+            self.clear_question()
+            if answer in NO_ANSWERS:
+                self.reply("Cancelled.")
+            else:
+                accept(text)
+            return
+        if answer in YES_ANSWERS | NO_ANSWERS:
             self.reply("There is no app suggestion awaiting confirmation.")
             return
 
@@ -644,7 +669,22 @@ class MainWindow(QMainWindow):
         identifier = result.command_id
         if result.status == "clarify":
             options = [commands[identifier] for identifier in result.candidates]
+            names = [command.name for command in options]
+            choices = "\n".join(f"{i}. {name}" for i, name in enumerate(names, 1))
+            prompt = f"Which command did you mean? Choose a name or number, or cancel.\n{choices}"
+            if self.voice_request:
+
+                def select(text):
+                    index = choice_index(text, names)
+                    if index is None:
+                        self.ask_question(prompt, select)
+                    else:
+                        self.execute(options[index])
+
+                self.ask_question(prompt, select)
+                return
             labels = [f"{command.name} · {command.actions[0].program}" for command in options]
+            self.reply(prompt, prompt=True)
             choice, accepted = QInputDialog.getItem(
                 self, "Choose a command", "Which command did you mean?", labels, 0, False
             )
@@ -658,6 +698,21 @@ class MainWindow(QMainWindow):
         tab_target = self.command_target
         action = command.actions[0]
         if action.kind in PARAMETERS and not action.arguments:
+            prompt = {
+                "switch_window": "Which app do you want to switch to?",
+                "close_app": "Which app do you want to close?",
+                "open_folder": "Which folder do you want to open?",
+                "find_file": "Which file do you want to find?",
+                "mute_app": "Which app do you want to mute?",
+                "unmute_app": "Which app do you want to unmute?",
+            }[action.kind]
+            if self.voice_request:
+                self.ask_question(
+                    prompt,
+                    lambda text: self.execute(with_argument(command, text.strip().rstrip(".!?"))),
+                )
+                return
+            self.reply(prompt, prompt=True)
             value, ok = QInputDialog.getText(self, command.name, PARAMETERS[action.kind][1])
             if not ok or not value.strip():
                 self.reply("Command cancelled.")
@@ -668,13 +723,18 @@ class MainWindow(QMainWindow):
             if not self.settings.shutdown_verifier:
                 self.reply("Set a spoken shutdown password in Settings → General first.")
                 return
-            self.start_recording(automatic=True, shutdown_command=command)
+            self.shutdown_challenge = command
+            self.set_busy(True)
+            self.reply("Say your shutdown password after the tone.", prompt=True)
+            self.resume_wake()
             return
         if command.requires_confirmation:
+            prompt = f"{command.name} this computer now? Save your work before confirming."
+            self.reply(prompt, prompt=True)
             result = QMessageBox.question(
                 self,
                 f"{command.name} this computer?",
-                f"{command.name} this computer now? Save your work before confirming.",
+                prompt,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -719,7 +779,7 @@ class MainWindow(QMainWindow):
     def run_selected(self, item):
         if self.worker or self.recording:
             return
-        self.clear_app_question()
+        self.clear_question()
         self.voice_request = False
         self.command_target = self.tab_tracker.capture()
         command = next(
@@ -733,7 +793,8 @@ class MainWindow(QMainWindow):
     def start_recording(self, automatic=False, shutdown_command=None):
         if self.worker or self.recording:
             return
-        self.command_target = self.tab_tracker.capture()
+        if not self.answer_question:
+            self.command_target = self.tab_tracker.capture()
         self.pause_wake()
         self.recording = True
         self.automatic_recording = automatic
@@ -746,12 +807,15 @@ class MainWindow(QMainWindow):
             self.recording = False
             self.automatic_recording = False
             self.command_endpoint = None
+            if shutdown_command is not None:
+                self.shutdown_challenge = None
+                self.set_busy(False)
             self.reply(str(error))
             QTimer.singleShot(0, self.resume_wake)
             return
         if automatic:
             self.recording_timer.start(10000)
-        self.recorded_question = self.app_question
+        self.recorded_question = self.answer_question
         self.mic_button.setText(
             "Listening… click to finish" if automatic else "Listening… release to run"
         )
@@ -796,7 +860,7 @@ class MainWindow(QMainWindow):
         audio = self.microphone.stop()
         self.command_endpoint = None
         if empty_command:
-            self.clear_app_question()
+            self.clear_question()
             self.set_busy(False)
             self.reply(
                 "Shutdown cancelled." if shutdown else "I didn’t hear a command. Please try again."
@@ -821,11 +885,11 @@ class MainWindow(QMainWindow):
         )
 
     def handle_voice(self, text, question=None):
-        if question is not None and self.app_question is not question:
-            self.reply("That app suggestion has expired.")
+        if question is not None and self.answer_question is not question:
+            self.reply("That question has expired.")
             return
         if not text:
-            self.clear_app_question()
+            self.clear_question()
             self.reply("I didn’t hear a command. Please try again.")
             return
         self.log("You · voice", text)
@@ -846,7 +910,7 @@ class MainWindow(QMainWindow):
         if self.worker or self.recording:
             return
         self.settings_open = True
-        self.clear_app_question()
+        self.clear_question()
         self.pause_wake()
         dialog = SettingsDialog(self.settings, self.apps, self.runtime, self.store, self)
         if dialog.exec():
@@ -876,9 +940,9 @@ class MainWindow(QMainWindow):
         return super().event(event)
 
     def closeEvent(self, event):
-        if self.app_question and self.recording:
+        if self.answer_question and self.recording:
             self.discard_recording()
-        self.clear_app_question()
+        self.clear_question()
         if self.shutdown_challenge is not None:
             self.discard_recording()
         if self.tray is not None and not self.quit_requested:
