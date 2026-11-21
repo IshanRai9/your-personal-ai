@@ -361,7 +361,7 @@ class MainWindow(QMainWindow):
             self.listen_for_answer = False
             self.start_recording(automatic=True)
             if self.recording:
-                self.status.setText("Listening for your answer…")
+                self.status.setText("Listening for your answer… You have 10 seconds to start.")
                 QApplication.beep()
             return
         if (
@@ -561,8 +561,10 @@ class MainWindow(QMainWindow):
         self.status.setText("Ready")
         if not self.closing:
             if worker.cancelled.is_set() or isinstance(worker.error, CancelledError):
+                self.clear_question()
                 self.reply("Command cancelled. Any completed steps have already run.")
             elif worker.error:
+                self.clear_question()
                 self.reply(str(worker.error))
             else:
                 callback(worker.result)
@@ -590,7 +592,8 @@ class MainWindow(QMainWindow):
         self.clear_question()
         self.answer_question = accept
         self.listen_for_answer = self.voice_request
-        self.question_timer.start(60000)
+        if not self.listen_for_answer:
+            self.question_timer.start(60000)
         self.reply(text, prompt=True)
         if self.listen_for_answer:
             QTimer.singleShot(0, self.resume_wake)
@@ -801,7 +804,8 @@ class MainWindow(QMainWindow):
         if self.speaker:
             self.speaker.stop()
         try:
-            self.command_endpoint = CommandEndpoint() if automatic else None
+            follow_up = self.answer_question is not None or shutdown_command is not None
+            self.command_endpoint = CommandEndpoint(follow_up=follow_up) if automatic else None
             self.microphone.start()
         except (OSError, RuntimeError) as error:
             self.recording = False
@@ -810,11 +814,15 @@ class MainWindow(QMainWindow):
             if shutdown_command is not None:
                 self.shutdown_challenge = None
                 self.set_busy(False)
+            if self.answer_question:
+                self.question_timer.start(60000)  # Allow a typed answer if capture failed.
             self.reply(str(error))
             QTimer.singleShot(0, self.resume_wake)
             return
-        if automatic:
-            self.recording_timer.start(10000)
+        if self.answer_question:
+            self.question_timer.stop()
+        if self.command_endpoint:
+            self.recording_timer.start(self.command_endpoint.max_duration_ms)
         self.recorded_question = self.answer_question
         self.mic_button.setText(
             "Listening… click to finish" if automatic else "Listening… release to run"

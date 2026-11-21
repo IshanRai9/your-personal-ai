@@ -8,7 +8,7 @@ from PySide6.QtMultimedia import QAudioFormat, QAudioSource, QMediaDevices
 class CommandEndpoint:
     """End a 16 kHz wake command after speech, or abandon an empty capture."""
 
-    def __init__(self):
+    def __init__(self, *, follow_up=False):
         import onnxruntime
         from faster_whisper.vad import get_speech_timestamps
 
@@ -20,6 +20,9 @@ class CommandEndpoint:
         self.checked = 0
         self.last_speech: int | None = None
         self.finished = False
+        self.start_timeout_samples = (10 if follow_up else 3) * 16000
+        self.end_silence_samples = 24000 if follow_up else 12800  # 1.5 or 0.8 seconds
+        self.max_duration_ms = 25000 if follow_up else 10000
 
     def feed(self, audio: np.ndarray) -> bool:
         if self.finished:
@@ -39,9 +42,9 @@ class CommandEndpoint:
             end = self.total - len(self.audio) + segments[-1]["end"]
             self.last_speech = max(self.last_speech or 0, end)
         if self.last_speech is None:
-            self.finished = self.total >= 48000
+            self.finished = self.total >= self.start_timeout_samples
         else:
-            self.finished = self.total - self.last_speech >= 12800
+            self.finished = self.total - self.last_speech >= self.end_silence_samples
         return self.finished
 
 

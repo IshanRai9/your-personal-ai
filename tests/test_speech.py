@@ -7,6 +7,24 @@ from personal_ai.speech import CommandEndpoint
 
 
 class CommandEndpointTests(unittest.TestCase):
+    def test_follow_up_allows_ten_seconds_to_start_and_a_longer_pause(self):
+        with patch("faster_whisper.vad.get_speech_timestamps", return_value=[]) as detect:
+            endpoint = CommandEndpoint(follow_up=True)
+            silence = np.zeros(1600, dtype=np.float32)
+            for _ in range(99):
+                self.assertFalse(endpoint.feed(silence))
+            self.assertTrue(endpoint.feed(silence))
+
+            endpoint = CommandEndpoint(follow_up=True)
+            for _ in range(90):
+                self.assertFalse(endpoint.feed(silence))
+            detect.return_value = [{"start": 30400, "end": 32000}]
+            self.assertFalse(endpoint.feed(silence))
+            detect.return_value = []
+            for _ in range(14):
+                self.assertFalse(endpoint.feed(silence))
+            self.assertTrue(endpoint.feed(silence))
+
     def test_brief_pause_continues_and_long_pause_finishes(self):
         with patch("faster_whisper.vad.get_speech_timestamps") as detect:
             endpoint = CommandEndpoint()

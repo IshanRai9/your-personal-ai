@@ -152,6 +152,8 @@ class DesktopTests(unittest.TestCase):
             QTest.qWait(25)
             self.assertTrue(window.automatic_recording)
             self.assertIn("Did you mean close discord?", window.activity.toPlainText())
+            self.assertEqual(window.recording_timer.interval(), 25000)
+            self.assertFalse(window.question_timer.isActive())
             desktop.user.PostMessageW.assert_not_called()
             window.command_endpoint.last_speech = 1600
             window.stop_recording()
